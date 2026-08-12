@@ -70,7 +70,27 @@ body {
   padding: 10px 20px 0;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
 }
-.app-header h1 { margin: 0 0 8px; font-size: 18px; font-weight: 700; letter-spacing: .02em; }
+.app-header h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .02em; }
+
+/* 題と版を横に並べる。狭い画面では版が下の行に落ちる。 */
+.header-top {
+  display: flex; align-items: baseline; gap: 8px 12px;
+  flex-wrap: wrap; margin: 0 0 8px;
+}
+
+/* 版の印。
+   現場から「数字がおかしい」と言われたとき、まず確かめるのがここ。
+   更新したのに変わらない、という問い合わせが実際にあったので、
+   設定タブの奥ではなく常に見える場所に置く。押すと設定タブへ飛ぶ。 */
+.version-chip {
+  appearance: none; border: 0; margin-left: auto;
+  background: rgba(255, 255, 255, .16); color: #eaf3e7;
+  font: inherit; font-size: 11px; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+}
+.version-chip:hover { background: rgba(255, 255, 255, .28); }
+.version-chip.is-stale { background: #f0a202; color: #3a2a00; }
 .tabs { display: flex; gap: 4px; }
 .tab {
   appearance: none;
@@ -475,6 +495,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .update-bar .mini-btn { margin-left: auto; }
 .update-bar .mini-btn + .mini-btn { margin-left: 0; }
 
+/* 設定画面の「更新を確認」。単一ファイル版では作られない。 */
+.update-check { gap: 10px; margin: 6px 0 0; flex-wrap: wrap; }
+
 /* 解析中のボタン。押しても反応が無いように見えないよう、動きを出す。 */
 .primary-btn.is-busy {
   background: linear-gradient(100deg, var(--accent-dark) 30%, var(--accent) 50%, var(--accent-dark) 70%);
@@ -625,7 +648,11 @@ dialog form { text-align: right; margin-top: 14px; }
 <body>
 
 <header class="app-header">
-  <h1>🌾 水稲 刈り取り適期判定</h1>
+  <div class="header-top">
+    <h1>🌾 水稲 刈り取り適期判定</h1>
+    <!-- 版は JS が入れる。中身が入るまでは場所を取らないよう hidden にしておく。 -->
+    <button class="version-chip" id="app-version-top" title="設定を開く" hidden></button>
+  </div>
   <nav class="tabs" role="tablist">
     <button class="tab is-active" data-tab="judge" role="tab">判定</button>
     <button class="tab" data-tab="history" role="tab">履歴</button>
@@ -1094,7 +1121,7 @@ dialog form { text-align: right; margin-top: 14px; }
 <script>
 /* ===== js: core/version.js ===== */
 // 版の情報（build.mjs が自動生成）。設定タブの下に出る。
-const APP_VERSION = {"date":"2026-08-12","hash":"638c4f05","git":"803dacd"};
+const APP_VERSION = {"date":"2026-08-12","hash":"d6e1c705","git":"8b96e22+"};
 
 /* ===== js: analysis/grain-worker-src.js ===== */
 // 別スレッド用の解析コード（build.mjs が src/analysis/ から自動生成）。
@@ -7128,8 +7155,65 @@ function initSettingsTab() {
 function renderVersion() {
   const v = typeof APP_VERSION === 'undefined' ? null : APP_VERSION;
   if (!v) return;
+
+  // 設定タブ：問い合わせに答えるための詳しい表示。
   $('#app-version').textContent = `版：${v.date}（${v.hash}`
     + (v.git ? ` / ${v.git}` : '') + '）';
+
+  // ヘッダー：どのタブにいても見える短い表示。
+  // 日付だけだと同じ日に作り直したとき見分けが付かないので、印も添える。
+  const chip = $('#app-version-top');
+  if (chip && !chip.classList.contains('is-stale')) {
+    chip.textContent = `版 ${v.date}・${v.hash.slice(0, 6)}`;
+    chip.hidden = false;
+    if (!chip.dataset.wired) {
+      chip.dataset.wired = '1';
+      chip.addEventListener('click', () => {
+        // 「新しい版あり」に変わっているときは register.js が受け持つ。
+        if (chip.classList.contains('is-stale')) return;
+        $('.tab[data-tab="settings"]').click();
+      });
+    }
+  }
+
+  renderUpdateCheck();
+}
+
+/**
+ * 手で更新を確かめるボタン。
+ *
+ * ふだんは register.js が勝手に確かめて画面下に知らせを出す。
+ * ただしスマホをホーム画面から開くと、裏で止まっていたものが
+ * 再開するだけで確認が走らないことがある。
+ * 「新しくしたはずなのに変わらない」ときの逃げ道として置く。
+ *
+ * 単一ファイル版には register.js が入らないので、そのときは出さない。
+ */
+function renderUpdateCheck() {
+  if (typeof window.pwaCheckUpdate !== 'function') return;
+  if ($('#btn-check-update')) return;
+
+  const msg = el('span', { id: 'update-check-msg', class: 'note' });
+  const btn = el('button', {
+    id: 'btn-check-update', class: 'mini-btn', text: '更新を確認',
+    onclick: () => {
+      btn.disabled = true;
+      msg.textContent = '確認しています…';
+      window.pwaCheckUpdate(true).then((res) => {
+        btn.disabled = false;
+        // 新しい版があったときは register.js が画面下に知らせを出すので、
+        // ここで重ねて言わない。
+        if (res === 'updated' || $('#update-bar')) { msg.textContent = ''; return; }
+        msg.textContent = res === 'current'
+          ? 'お使いの版が最新です'
+          : '確認できませんでした（電波の届く所でお試しください）';
+      });
+    },
+  });
+
+  $('#app-version').parentNode.appendChild(
+    el('p', { class: 'row update-check' }, [btn, msg]),
+  );
 }
 
 function renderSettingsTab() {
@@ -7660,30 +7744,145 @@ if (document.readyState === 'loading') {
 // 新しい版を置いても、開きっぱなしの端末は古い版のまま動き続ける。
 // このアプリは判定のしきい値を変えることがあるので、
 // 古い版と新しい版で違う答えが出たまま気づかない、という事故が起きうる。
+//
+// 【スマホで知らせが出なかった理由】
+// ブラウザが sw.js を取りに行くのは「ページを新しく読み込んだとき」だけ。
+// PCは再読み込みや開き直しをよくするので毎回そこで気づく。
+// スマホでホーム画面から開くと、多くの場合アプリは
+// 裏で止まっていたものが再開するだけで、読み込みが起きない。
+// つまり何日開いても一度も確認しない。
+// そこで、画面が見えるようになるたびに自分から reg.update() を呼ぶ。
+//
+// もう一つ、sw.js は skipWaiting() で即座に交代するため、
+// updatefound を取り逃がすと知らせる機会が無くなる。
+// 交代そのもの（controllerchange）も合図として拾う。
 
 (function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  window.addEventListener('load', () => {
+  // 読み込みの時点で既に古い版が動いていたか。
+  // 初回の取り込みでも controllerchange は起きるので、
+  // これを見ないと「初めて開いただけ」で更新の知らせが出てしまう。
+  const hadController = !!navigator.serviceWorker.controller;
+
+  // 確認の間隔。画面の出入りのたびに通信すると圃場で電池と電波を無駄にする。
+  const MIN_CHECK_INTERVAL = 60 * 1000;
+  const PERIODIC_CHECK = 30 * 60 * 1000;
+  let lastCheck = 0;
+  let registration = null;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController) showUpdateBar();
+  });
+
+  whenLoaded(() => {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
-      // 新しい版が取り込まれたら知らせる
+      registration = reg;
+      lastCheck = Date.now();
+
+      // 登録が返るより先に取り込みが進んでいることがある。
+      // updatefound を待つだけだと取り逃がすので、今の状態も見る。
+      if (reg.waiting && hadController) showUpdateBar();
+      if (reg.installing) watchWorker(reg.installing);
+
       reg.addEventListener('updatefound', () => {
-        const sw = reg.installing;
-        if (!sw) return;
-        sw.addEventListener('statechange', () => {
-          // controller があるということは、すでに古い版が動いている＝更新
-          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateBar();
-          }
-        });
+        if (reg.installing) watchWorker(reg.installing);
       });
+
+      // 画面に戻ってきたときに確認する。スマホではこれが主な入口になる。
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      });
+      window.addEventListener('pageshow', () => checkForUpdate());
+      setInterval(() => {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      }, PERIODIC_CHECK);
     }).catch((err) => {
       // 登録できなくてもアプリ自体は動く。オフラインで開けなくなるだけ。
       console.warn('オフライン用の取り込みを登録できませんでした。', err);
     });
   });
 
+  function watchWorker(sw) {
+    sw.addEventListener('statechange', () => {
+      // 古い版が動いている最中に新しい版が入った＝更新
+      if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+        showUpdateBar();
+      }
+    });
+  }
+
+  /**
+   * 新しい版が出ていないか確かめる。
+   *
+   * @param {boolean} force 設定画面のボタンから呼ぶとき。間隔の制限を外す。
+   * @returns {Promise<string>} 'updated' / 'current' / 'skipped' / 'unavailable' / 'failed'
+   */
+  function checkForUpdate(force) {
+    if (!registration) return Promise.resolve('unavailable');
+    const now = Date.now();
+    if (!force && now - lastCheck < MIN_CHECK_INTERVAL) {
+      return Promise.resolve('skipped');
+    }
+    lastCheck = now;
+    return registration.update()
+      .then((reg) => settled(reg || registration))
+      .catch(() => 'failed'); // 圏外ならここに来る。失敗しても動作に影響はない。
+  }
+
+  /**
+   * update() が返った時点では、まだ新しい版を取り込んでいる最中のことがある。
+   * ここで待たずに「最新です」と出すと、直後に更新の知らせが出て食い違う。
+   */
+  function settled(reg) {
+    const sw = reg.installing || reg.waiting;
+    if (!sw) return 'current';
+    if (sw.state !== 'installing') return 'updated';
+    return new Promise((resolve) => {
+      // 取り込みが終わらないまま黙り込む場合に備えて時間で打ち切る。
+      const timer = setTimeout(() => resolve('current'), 15000);
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'installing') return;
+        clearTimeout(timer);
+        // redundant は取り込みに失敗した場合。新しい版は使えない。
+        resolve(sw.state === 'redundant' ? 'failed' : 'updated');
+      });
+    });
+  }
+
+  // 設定画面の「更新を確認」ボタンから使う。
+  // 単一ファイル版にはこのファイルが入らないので、
+  // 呼ぶ側は関数があるかどうかでボタンの出し分けをすること。
+  window.pwaCheckUpdate = checkForUpdate;
+
+  function whenLoaded(fn) {
+    // 既に読み込みが終わっていると load は二度と来ない。
+    if (document.readyState === 'complete') fn();
+    else window.addEventListener('load', fn);
+  }
+
+  /**
+   * ヘッダーの版の印を「新しい版あり」に変える。
+   *
+   * 下の知らせは「あとで」で消せる。消したあと何も残らないと、
+   * 新しい版が待っていること自体を忘れる。印は消えない。
+   */
+  function markStale() {
+    const chip = document.getElementById('app-version-top');
+    if (!chip) return;
+    chip.classList.add('is-stale');
+    chip.textContent = '新しい版あり';
+    chip.title = '新しい版のお知らせを出す';
+    chip.hidden = false;
+    if (chip.dataset.staleWired) return;
+    chip.dataset.staleWired = '1';
+    // 押したら知らせを出し直す。ここで直接 reload すると、
+    // 解析中の写真が消える。「今すぐ更新」を押させる一段を残す。
+    chip.addEventListener('click', () => showUpdateBar());
+  }
+
   function showUpdateBar() {
+    markStale();
     if (document.getElementById('update-bar')) return;
     const bar = el('div', { id: 'update-bar', class: 'update-bar' }, [
       el('span', { text: '新しい版があります。' }),
@@ -7699,3 +7898,5 @@ if (document.readyState === 'loading') {
 </script>
 </body>
 </html>
+
+<!-- probe -->
