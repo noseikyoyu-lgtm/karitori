@@ -697,6 +697,17 @@ const GRAIN_PARAMS = {
   PAPER_MIN_RATIO: 0.05,
   PAPER_MIN_BRIGHT_PCTL: 60.0,
   PAPER_ERODE_PX: 3,
+
+  // 紙の白い部分が分断されたとき、どこまでを同じ1枚の紙とみなすか。
+  // 最大の成分に対するこの割合、または画像全体に対するこの割合を
+  // 超える成分は、まとめて紙として扱う（そのあと凸包で1枚に戻す）。
+  //
+  // 穂が画面の端から端まで伸びると、紙が2つに割れる。実測では
+  // 738,714 と 730,992 のほぼ同じ2つになり、片方だけを使ったために
+  // 穂の2割しか数えられなかった。
+  // 小さすぎるものを拾うと机の上の白い物まで巻き込むので、下限を設ける。
+  PAPER_PIECE_MIN_RATIO: 0.2,
+  PAPER_PIECE_MIN_AREA: 0.03,
   // 紙の上でこの彩度以上なら「色のついたもの＝籾か茎」とみなす。
   //
   // 【この値は妥当。11通りの代案を試して、どれも及ばなかった 2026-08-11】
@@ -1623,15 +1634,33 @@ function grainDetectPaper(s, v, w, h) {
     }
   }
 
-  // 最大の連結成分だけを紙とみなす
+  // 紙とみなす連結成分を選ぶ。
+  //
+  // 【最大の1つだけにしない理由 — 実際に起きた不具合】
+  // 紙は1枚でも、その上に載せたものが白い部分を分断する。
+  // 穂が画面の上端から下端まで伸びると、紙は左右2つの成分に割れる。
+  // 最大の1つだけを紙とみなすと、穂がある側がまるごと解析範囲から外れ、
+  // 穂の2割しか数えられなくなる（実測：画像の90%が白なのに、
+  // 使われたのはその半分。面積 738,714 と 730,992 のほぼ同じ2つに割れていた）。
+  //
+  // 大きい成分をまとめて拾い、そのあと凸包で1枚に戻す。
+  // 机の上の小さな白い物を巻き込まないよう、小さすぎる成分は捨てる。
   const res = labelComponents(white, w, h);
   if (res.count === 0) return { mask: all, found: false, whiteRatio: whiteRatio };
   const sizes = labelSizes(res.labels, res.count);
   let largest = 1;
   for (let l = 1; l <= res.count; l++) if (sizes[l] > sizes[largest]) largest = l;
 
+  const minPiece = Math.max(
+    sizes[largest] * GRAIN_PARAMS.PAPER_PIECE_MIN_RATIO,
+    n * GRAIN_PARAMS.PAPER_PIECE_MIN_AREA,
+  );
+  const isPaper = new Uint8Array(res.count + 1);
+  for (let l = 1; l <= res.count; l++) isPaper[l] = sizes[l] >= minPiece ? 1 : 0;
+  isPaper[largest] = 1;   // 最大の1つは必ず含める
+
   const comp = new Uint8Array(n);
-  for (let i = 0; i < n; i++) comp[i] = res.labels[i] === largest ? 1 : 0;
+  for (let i = 0; i < n; i++) comp[i] = isPaper[res.labels[i]] ? 1 : 0;
 
   // 凸包の頂点候補は「各行・各列の両端」に必ず含まれる。全画素を渡すより速い。
   const pts = [];
