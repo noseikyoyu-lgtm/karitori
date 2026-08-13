@@ -611,7 +611,12 @@ dialog form { text-align: right; margin-top: 14px; }
 
 /* 画面の広さで出し分ける。スマホでは撮影が主な入口になる。 */
 .phone-only { display: none; }
-.shoot-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+/* display はここで指定しない。
+   .phone-only（display:none）と同じ強さなので、あとに書いたこちらが勝ち、
+   PCでも「カメラで撮る」が出ていた。PCの capture 付き入力は
+   カメラを開けないので、押しても意味がない。
+   出す指定は下の @media（スマホ幅）だけに置く。 */
+.shoot-row { gap: 10px; align-items: center; margin-top: 10px; }
 .shoot-row .primary-btn { flex: 1; }
 
 @media (max-width: 640px) {
@@ -737,10 +742,11 @@ dialog form { text-align: right; margin-top: 14px; }
     </div>
     <!-- スマホでは「その場で撮る」が主な入口になる。
          capture を付けた入力を別に持つのは、同じ input では
-         カメラ起動と保存済み写真の選択を切り替えられないため。 -->
+         カメラ起動と保存済み写真の選択を切り替えられないため。
+         保存済みから選ぶ入口は上の「写真を選ぶ」が兼ねる
+         （同じファイル選択を開くので、2つ並べても選び分けにならない）。 -->
     <div class="shoot-row phone-only">
       <button class="primary-btn" id="btn-shoot">カメラで撮る</button>
-      <button class="mini-btn" id="btn-pick">保存済みから選ぶ</button>
       <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
     </div>
 
@@ -815,28 +821,7 @@ dialog form { text-align: right; margin-top: 14px; }
     </div>
   </div>
 
-  <div class="card" id="hand-card" hidden>
-    <div class="card-head">
-      <h2>⑤ 手数えと比べる<small>（答え合わせ）</small></h2>
-      <span class="head-hint">この写真の穂を実際に数えた結果を入れます</span>
-    </div>
-    <p class="note">
-      写真を撮った<b>その穂そのもの</b>を、籾を外して数えてください。
-      不稔籾（中身の入っていない軽いもの）は数から外します。
-      <b>緑が残っている籾のほうが数が少ないので、そちらを数えるのが早いです。</b>
-    </p>
-    <div class="hand-row">
-      <label class="field inline">
-        <span>全籾数<small>（不稔を除く）</small></span>
-        <input type="number" id="in-hand-total" min="0" step="1" placeholder="粒">
-      </label>
-      <label class="field inline">
-        <span>うち緑が残っていた籾<small>（帯緑＋緑）</small></span>
-        <input type="number" id="in-hand-green" min="0" step="1" placeholder="粒">
-      </label>
-    </div>
-    <div id="hand-result"></div>
-  </div>
+  
 
   <div class="card" id="teach-card" hidden>
     <div class="card-head">
@@ -998,9 +983,9 @@ dialog form { text-align: right; margin-top: 14px; }
       <b>色の境目の初期値は、手で数えた穂3本（籾黄化率50〜75%）に合わせたものです。</b>
       その3本は値を決めるのに使ったので、精度の裏付けにはなりません。
       <b>刈取の判断が変わる85%付近では、まだ一度も確かめていません。</b>
-      お使いの圃場・品種で、とくに黄化率80〜90%の穂で答え合わせをしてください。
+      お使いの圃場・品種では数値が異なることがあります。現地の状況とご自身の目で必ず確認してください。
     </p>
-    <div id="hand-summary"></div>
+    
   </div>
 
   <div class="card">
@@ -1123,7 +1108,7 @@ dialog form { text-align: right; margin-top: 14px; }
 <script>
 /* ===== js: core/version.js ===== */
 // 版の情報（build.mjs が自動生成）。設定タブの下に出る。
-const APP_VERSION = {"date":"2026-08-13","hash":"7552c9ed","git":"d785304+"};
+const APP_VERSION = {"date":"2026-08-13","hash":"070b3735","git":"7f0adf9+"};
 
 /* ===== js: analysis/grain-worker-src.js ===== */
 // 別スレッド用の解析コード（build.mjs が src/analysis/ から自動生成）。
@@ -5515,7 +5500,6 @@ function initJudgeTab() {
     camInput.value = '';
   });
   $('#btn-shoot').addEventListener('click', () => camInput.click());
-  $('#btn-pick').addEventListener('click', () => fileInput.click());
 
   // 引数無しで呼ぶ。そのまま渡すとクリックの情報が opts に入ってしまう。
   $('#btn-analyze').addEventListener('click', () => runAnalysis());
@@ -5543,7 +5527,8 @@ function initJudgeTab() {
   $('#in-shotdate').value = today();
   initTeachUI();
   initGrainLabel();
-  initHandCheck();
+  // 手数えとの答え合わせは開発用の版にしか入っていない。
+  if (typeof initHandCheck === 'function') initHandCheck();
   drawHelpFigure();
   onModeChange();
 }
@@ -5691,7 +5676,7 @@ function setupImage(img) {
   $('#result-card').hidden = true;
   $('#teach-card').hidden = true;
   $('#grain-label-card').hidden = true;
-  $('#hand-card').hidden = true;
+  if ($('#hand-card')) $('#hand-card').hidden = true;
 }
 
 function makeThumbnail(img) {
@@ -5816,7 +5801,7 @@ async function runAnalysis(opts) {
   // （keepRecord）で閉じると、いま粒を見ていた人の手元が消えてしまう。
   if (!opts || !opts.keepRecord) GrainLabelState.open = false;
   renderGrainLabel();
-  refreshHandCard();
+  if (typeof refreshHandCard === 'function') refreshHandCard();
   $('#teach-card').hidden = analysis.mode !== 'panicle';
   $('#in-actual').value = saved && saved.actualGreenRatio !== null && saved.actualGreenRatio !== undefined ? String(saved.actualGreenRatio) : '';
   markTeachButtons(saved ? saved.userStage : null);
@@ -6553,163 +6538,6 @@ function renderGrainLearnStatus() {
   }
 }
 
-/* ===== js: ui/tab-hand.js ===== */
-// 手数えと比べる（答え合わせ）
-//
-// 【なぜ必要か】
-// このアプリは「籾を1粒ずつ数えて黄化率を出す」と言っているが、
-// その数字が実物と合っているかを確かめた記録が1件も無い。
-// 切り出しの精度は写真上で測ったが、それは「粒を数えられているか」であって、
-// 刈取の判断に使う「籾黄化率」が正しいかとは別の話。
-//
-// 【2つの数だけ入れてもらう理由】
-// 全籾数と、緑が残っていた籾の数。この2つがあれば、
-//   ・粒数の差   → 切り出しが合っているか
-//   ・黄化率の差 → 色の判定が合っているか
-// を分けて見られる。どちらが原因かが分からないと直しようがない。
-//
-// 黄化した籾のほうが多いので、少ないほうの緑を数えてもらう。
-// 黄化率85%の穂なら、200粒のうち数えるのは30粒で済む。
-
-function initHandCheck() {
-  for (const id of ['#in-hand-total', '#in-hand-green']) {
-    $(id).addEventListener('input', renderHandCheck);
-    $(id).addEventListener('change', saveHandCheck);
-  }
-}
-
-/** 入力から手数えの結果を組み立てる。足りない・おかしい場合は null。 */
-function handCheckValues() {
-  const total = Number($('#in-hand-total').value);
-  const green = Number($('#in-hand-green').value);
-  if (!$('#in-hand-total').value || !Number.isFinite(total) || total <= 0) return null;
-  if ($('#in-hand-green').value === '' || !Number.isFinite(green) || green < 0) return null;
-  if (green > total) return { error: '緑の数が全籾数を超えています。' };
-  return { total: Math.round(total), green: Math.round(green),
-           yellowing: (total - green) / total * 100 };
-}
-
-function renderHandCheck() {
-  const box = $('#hand-result');
-  const a = JudgeState.analysis;
-  box.textContent = '';
-  if (!a || a.method !== 'grain') return;
-
-  const h = handCheckValues();
-  if (!h) {
-    box.appendChild(el('p', { class: 'note', text:
-      '2つとも入れると、アプリの判定とどれだけ合っているかが出ます。' }));
-    return;
-  }
-  if (h.error) {
-    box.appendChild(el('p', { class: 'note ev-err', text: h.error }));
-    return;
-  }
-
-  const appYellow = a.yellowingRatio === null ? null : a.yellowingRatio * 100;
-  const dCount = a.grainCount - h.total;
-  const dYellow = appYellow === null ? null : appYellow - h.yellowing;
-
-  const table = el('table', { class: 'hand-table' }, [
-    el('tbody', null, [
-      row('籾の数', h.total + ' 粒', a.grainCount + ' 粒', dCount, '粒'),
-      row('籾黄化率', h.yellowing.toFixed(1) + '%',
-        appYellow === null ? '—' : appYellow.toFixed(1) + '%', dYellow, 'ポイント'),
-    ]),
-  ]);
-  box.appendChild(el('div', { class: 'table-wrap' }, [table]));
-
-  // 判断が変わるかどうかが最も重い。85%をまたいでいないかを名指しで言う。
-  if (dYellow !== null) {
-    const cross = (h.yellowing < 85) !== (appYellow < 85);
-    box.appendChild(el('p', {
-      class: 'note ' + (cross ? 'warn-note' : ''),
-      text: cross
-        ? `⚠ 適期の入口（85%）をまたいで食い違っています。`
-          + `手数えでは${h.yellowing < 85 ? 'まだ' : 'すでに'}85%${h.yellowing < 85 ? '未満' : '以上'}、`
-          + `アプリは${appYellow < 85 ? '未満' : '以上'}。この写真では刈取の判断が変わります。`
-        : Math.abs(dYellow) < 5
-          ? '差は小さく、刈取の判断は変わりません。'
-          : `${Math.abs(dYellow).toFixed(1)}ポイントの差があります。`
-            + '85%はまたいでいないので、この写真では判断は変わりません。',
-    }));
-  }
-
-  box.appendChild(el('p', { class: 'note', text:
-    Math.abs(dCount) > h.total * 0.2
-      ? '粒数が2割以上ずれています。色の判定より先に、切り出しを疑ってください。'
-      : '粒数はおおむね合っています。差があるとすれば色の判定側です。' }));
-
-  function row(name, hand, app, diff, unit) {
-    const sign = diff > 0 ? '+' : '';
-    return el('tr', null, [
-      el('th', { text: name }),
-      el('td', { text: '手数え ' + hand }),
-      el('td', { text: 'アプリ ' + app }),
-      el('td', { class: 'hand-diff', text: diff === null ? '' : `差 ${sign}${diff.toFixed(unit === '粒' ? 0 : 1)} ${unit}` }),
-    ]);
-  }
-}
-
-/** 記録に残す。記録がまだ無ければ作る（あとから探せるように）。 */
-function saveHandCheck() {
-  const h = handCheckValues();
-  if (!h || h.error) return;
-  const record = ensureSavedRecord();
-  if (!record) return;
-  record.handTotal = h.total;
-  record.handGreen = h.green;
-  record.handYellowing = Math.round(h.yellowing * 10) / 10;
-  saveDB();
-  renderHistoryTab();
-  renderSettingsTab();
-}
-
-/** 判定タブを描き直すときに呼ぶ */
-function refreshHandCard() {
-  const a = JudgeState.analysis;
-  const usable = a && a.method === 'grain';
-  $('#hand-card').hidden = !usable;
-  if (!usable) return;
-  const saved = JudgeState.savedRecordId
-    ? DB.records.find((r) => r.id === JudgeState.savedRecordId) : null;
-  $('#in-hand-total').value = saved && saved.handTotal ? String(saved.handTotal) : '';
-  $('#in-hand-green').value = saved && saved.handGreen !== null
-    && saved.handGreen !== undefined ? String(saved.handGreen) : '';
-  renderHandCheck();
-}
-
-/**
- * これまでの答え合わせをまとめる（設定タブ用）。
- *
- * 平均の差だけでなく「85%をまたいだ取り違え」を数える。
- * 誤差の大きさより、刈取の可否が変わったかどうかが重い。
- */
-function handCheckSummary() {
-  const rows = DB.records.filter((r) => (r.method === 'grain')
-    && r.handTotal && r.handYellowing !== null && r.handYellowing !== undefined
-    && r.yellowingRatio !== null && r.yellowingRatio !== undefined);
-  if (rows.length === 0) return { n: 0 };
-
-  let sumAbs = 0, sumSigned = 0, cross = 0, sumCount = 0;
-  for (const r of rows) {
-    const app = r.yellowingRatio * 100;
-    const d = app - r.handYellowing;
-    sumAbs += Math.abs(d);
-    sumSigned += d;
-    if ((r.handYellowing < 85) !== (app < 85)) cross++;
-    if (r.grainCount) sumCount += (r.grainCount - r.handTotal) / r.handTotal;
-  }
-  return {
-    n: rows.length,
-    meanAbs: sumAbs / rows.length,
-    bias: sumSigned / rows.length,
-    cross: cross,
-    countBias: sumCount / rows.length * 100,
-    days: new Set(rows.map((r) => r.date)).size,
-  };
-}
-
 /* ===== js: ui/tab-history.js ===== */
 // 履歴タブ
 
@@ -7427,54 +7255,6 @@ function renderStationTable() {
 
 // ---------------- 手数えとの答え合わせ ----------------
 
-function renderHandSummary() {
-  const box = $('#hand-summary');
-  box.textContent = '';
-  const s = handCheckSummary();
-
-  if (s.n === 0) {
-    box.appendChild(el('p', { class: 'empty-msg', text:
-      'まだ1件もありません。写真を撮った穂の籾を実際に数えて、'
-      + '判定タブの「⑤ 手数えと比べる」に入れてください。' }));
-    return;
-  }
-
-  const dl = el('dl', { class: 'kv' });
-  const add = (k, v) => { dl.appendChild(el('dt', { text: k })); dl.appendChild(el('dd', { text: v })); };
-  add('突き合わせた穂', `${s.n} 本（${s.days}日ぶん）`);
-  add('籾黄化率のずれ', `平均 ${s.meanAbs.toFixed(1)} ポイント`);
-  add('かたより', `${s.bias >= 0 ? '+' : ''}${s.bias.toFixed(1)} ポイント`
-    + `（アプリが${s.bias >= 0 ? '高め' : '低め'}に出る）`);
-  add('籾数のかたより', `${s.countBias >= 0 ? '+' : ''}${s.countBias.toFixed(0)} %`);
-  add('85%をまたぐ取り違え', s.cross === 0 ? 'なし' : `${s.cross} 本 ← 重要`);
-  box.appendChild(dl);
-
-  // 見るべき順番を書いておく。誤差の大きさより、判断が変わったかが重い。
-  if (s.cross > 0) {
-    box.appendChild(el('p', { class: 'note warn-note', text:
-      `適期の入口（85%）をまたいで食い違った穂が${s.cross}本あります。`
-      + '70%が75%になっても判断は変わりませんが、84%と86%を取り違えると'
-      + '刈取指示が1週間ずれます。この件数が0になるまでは、'
-      + 'アプリの数字だけで刈取を決めないでください。' }));
-  } else if (s.n < 3) {
-    box.appendChild(el('p', { class: 'note', text:
-      `いまのところ取り違えはありませんが、${s.n}本では確かめたことになりません。`
-      + '3本以上、できれば黄化率80〜90%の穂で試してください。'
-      + '判断が変わるのはそこだけです。' }));
-  } else if (Math.abs(s.bias) > 3) {
-    box.appendChild(el('p', { class: 'note', text:
-      `かたよりが${Math.abs(s.bias).toFixed(1)}ポイント`
-      + `${s.bias > 0 ? '高い' : '低い'}側に偏っています。`
-      + '「④ 粒を確かめる」で色の境目を学習させると近づきます。' }));
-  }
-
-  if (Math.abs(s.countBias) > 20) {
-    box.appendChild(el('p', { class: 'note warn-note', text:
-      `籾数が実物と${Math.abs(s.countBias).toFixed(0)}%ずれています。`
-      + '色の判定より先に、切り出し（撮り方）を見直してください。' }));
-  }
-}
-
 // ---------------- 粒の色の学習状況 ----------------
 
 function renderGrainLearnSettings() {
@@ -7522,7 +7302,8 @@ function renderLearning() {
   $('#in-use-grain').checked = DB.settings.useGrainCount !== false;
   $('#in-use-grain-learned').checked = DB.settings.useGrainLearned !== false;
   renderGrainLearnSettings();
-  renderHandSummary();
+  // 手数えのまとめは開発用の版にしかない
+  if ($('#hand-summary')) renderHandSummary();
 
   const body = $('#learn-body');
   body.textContent = '';
