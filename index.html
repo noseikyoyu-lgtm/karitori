@@ -1121,7 +1121,7 @@ dialog form { text-align: right; margin-top: 14px; }
 <script>
 /* ===== js: core/version.js ===== */
 // 版の情報（build.mjs が自動生成）。設定タブの下に出る。
-const APP_VERSION = {"date":"2026-08-12","hash":"d6e1c705","git":"8b96e22+"};
+const APP_VERSION = {"date":"2026-08-13","hash":"6a3ed63f","git":"e6cf09c+"};
 
 /* ===== js: analysis/grain-worker-src.js ===== */
 // 別スレッド用の解析コード（build.mjs が src/analysis/ から自動生成）。
@@ -4871,6 +4871,17 @@ const WEIGHT_GDD = 2;
 const WEIGHT_DAYS_WITH_GDD = 0.5; // 積算温度があるときの日数の重みは補助程度
 const WEIGHT_DAYS_ALONE = 1.5;
 
+/**
+ * 緑籾指数が使える値かどうか。
+ *
+ * 籾が1粒も数えられなかったときは null が入る。null は掛け算で 0 に化け、
+ * 0 は「緑が1粒も残っていない」という正反対の意味を持つので、
+ * 判定に入る手前で必ずここを通すこと。
+ */
+function hasGreenIndex(v) {
+  return v !== null && v !== undefined && !Number.isNaN(v);
+}
+
 /** 重み付きでステージを1つにまとめる。履歴の再計算からも使う。 */
 function combineStages(parts) {
   if (!parts.length) return null;
@@ -4900,6 +4911,11 @@ function restageRecord(r) {
   if (r.mode !== 'panicle') return null;
   const variety = findVariety(r.varietyId);
   if (!variety) return r.stage || null;
+
+  // 緑籾指数が無い記録（籾が数えられなかった写真）は判定を出さない。
+  // 日数や積算温度だけで段階を出さないのは judge() と同じ扱い。
+  // 直す前の版で保存された記録が履歴に残っているので、ここでも要る。
+  if (!hasGreenIndex(r.greenIndex)) return null;
 
   const parts = [];
   const learned = learnedFor(variety.id);
@@ -4939,13 +4955,24 @@ function judge(ctx) {
   };
 
   // ---------- 色解析 ----------
+  // 籾を1粒も数えられなかったとき（紙が写っていない、籾が小さすぎる、
+  // 色で全部除かれた）、緑籾指数は null になる。
+  //
+  // ここを素通りさせると null * 100 が 0 になり、clamp も素の比較なので
+  // 通してしまい、「緑が1粒も残っていない＝刈り遅れ」という
+  // 正反対の判定になる。実際に「籾黄化率 100.0%（黄化 0 粒 ÷ 全 0 粒）→
+  // 至急刈取ってください」と出ていた。数えられなかったのだから、
+  // 色からは何も言えないのが正しい。
+  const hasColor = hasGreenIndex(a.greenIndex);
+
   // 教えてもらった判定が溜まっていれば、換算を挟まず緑籾指数を直接そのしきい値にかける
   // 粒カウント方式は籾数で直接測っているので換算しない。
   // 換算を通すと、指標カードと判定理由に別々の黄化率が並んでしまう。
-  out.estGreenPct = a.method === 'grain'
-    ? clamp(a.greenIndex * 100, 0, 100)
-    : estimateGreenRatioPct(a.greenIndex, DB.calib);
-  if (a.mode === 'panicle') {
+  out.estGreenPct = !hasColor ? null
+    : a.method === 'grain'
+      ? clamp(a.greenIndex * 100, 0, 100)
+      : estimateGreenRatioPct(a.greenIndex, DB.calib);
+  if (hasColor && a.mode === 'panicle') {
     const learned = variety ? learnedFor(variety.id) : null;
     if (learned) {
       out.colorStage = stageFromLearned(a.greenIndex * 100, learned.bounds);
@@ -4986,6 +5013,14 @@ function judge(ctx) {
     out.stage = null;
     out.headline = '参考値のみ（全景モード）';
     out.sub = '同じ圃場を同じアングルで撮り続けたときの進み具合の目安です。刈取の判断は穂のアップ撮影で行ってください。';
+  } else if (!hasColor) {
+    // 写真から色が測れていないのに刈取の判定を出さない。
+    // 積算温度と出穂後日数は現物を見ていない推定なので、これだけで
+    // 「適期」と大きく出すと、使えない写真が判断の根拠になってしまう。
+    // 両方とも理由欄には出るので、情報は失われない。
+    out.stage = null;
+    out.headline = '判定できません';
+    out.sub = '籾の色を測れませんでした。撮影のしかたを確かめて、撮り直してください。';
   } else if (parts.length === 0) {
     out.stage = null;
     out.headline = '判定できません';
@@ -5006,6 +5041,14 @@ function buildReasons(out, ctx, parts) {
 
   // 撮影・解析上の注意はそのまま引き継ぐ
   for (const w of a.warnings) out.reasons.push(w);
+
+  // なぜ判定が出ないのかを理由欄にも残す。
+  if (!hasGreenIndex(a.greenIndex) && a.mode === 'panicle') {
+    out.reasons.push({
+      level: 'alert',
+      text: '籾の色を測れませんでした。籾が1粒も数えられていないため、刈取の判定は出せません。',
+    });
+  }
 
   if (out.colorStage && out.colorBasis === 'learned') {
     const b = out.learned.bounds;
@@ -7898,5 +7941,3 @@ if (document.readyState === 'loading') {
 </script>
 </body>
 </html>
-
-<!-- probe -->
