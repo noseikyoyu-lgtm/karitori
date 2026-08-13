@@ -222,33 +222,34 @@ function toast(msg) {
 //   days       : 出穂後日数の目安（日）。積算温度が無いときの代替指標。
 //   group      : うるち / もち / 酒米
 
+// 【★印の付いた数値は暫定です】
+// 「★」の行は、熟期（早生・中生・晩生）から置いた仮の値であって、
+// 指導基準を確かめて入れたものではありません。設定タブで必ず直してください。
+// ★の無い行は、以前からこの表にあった値をそのまま引き継いでいます。
+//
+// 積算温度と出穂後日数は「参考」の重みしか持たないため、暫定値のままでも
+// 刈取判断そのものは籾黄化率（85%）で決まります。とはいえ理由欄には出ます。
+
 const DEFAULT_VARIETIES = [
   // --- うるち米 ---
   { name: 'コシヒカリ',       group: 'うるち', gdd: 1050, greenHi: 15, greenLo: 10, days: 43 },
-  { name: 'ひとめぼれ',       group: 'うるち', gdd: 1030, greenHi: 15, greenLo: 10, days: 45 },
-  { name: 'あきたこまち',     group: 'うるち', gdd: 1000, greenHi: 15, greenLo: 10, days: 42 },
-  { name: 'ななつぼし',       group: 'うるち', gdd: 1000, greenHi: 15, greenLo: 10, days: 45 },
-  { name: 'ゆめぴりか',       group: 'うるち', gdd: 1030, greenHi: 15, greenLo: 10, days: 47 },
-  { name: 'きぬむすめ',       group: 'うるち', gdd: 1030, greenHi: 15, greenLo: 10, days: 45 },
-  { name: 'ヒノヒカリ',       group: 'うるち', gdd: 1080, greenHi: 15, greenLo: 10, days: 47 },
-  { name: 'にこまる',         group: 'うるち', gdd: 1100, greenHi: 15, greenLo: 10, days: 48 },
+  // BLはコシヒカリにいもち病抵抗性を導入した系統で、熟期は同じ
+  { name: 'コシヒカリBL',     group: 'うるち', gdd: 1050, greenHi: 15, greenLo: 10, days: 43 },
   { name: 'こしいぶき',       group: 'うるち', gdd: 1000, greenHi: 15, greenLo: 10, days: 40 },
-  { name: 'つや姫',           group: 'うるち', gdd: 1050, greenHi: 15, greenLo: 10, days: 45 },
-  { name: 'あきさかり',       group: 'うるち', gdd: 1080, greenHi: 15, greenLo: 10, days: 46 },
-  { name: 'キヌヒカリ',       group: 'うるち', gdd: 1030, greenHi: 15, greenLo: 10, days: 43 },
+  { name: 'ゆきん子舞',       group: 'うるち', gdd: 1020, greenHi: 15, greenLo: 10, days: 42 }, // ★
+  { name: 'なつひめ',         group: 'うるち', gdd: 980,  greenHi: 15, greenLo: 10, days: 38 }, // ★
+  { name: '新之助',           group: 'うるち', gdd: 1150, greenHi: 15, greenLo: 10, days: 50 }, // ★
+  { name: 'にじのきらめき',   group: 'うるち', gdd: 1100, greenHi: 15, greenLo: 10, days: 47 }, // ★
+  { name: 'あきだわら',       group: 'うるち', gdd: 1100, greenHi: 15, greenLo: 10, days: 48 }, // ★
+  { name: '新潟次郎',         group: 'うるち', gdd: 1050, greenHi: 15, greenLo: 10, days: 43 }, // ★★熟期も未確認
+  // 酒造好適米だが、うるち米なのでここに入れる。
+  // しきい値は酒米向けの値（早刈り寄り）を引き継いでいる。
+  { name: '五百万石',         group: 'うるち', gdd: 1000, greenHi: 13, greenLo: 8,  days: 42 },
 
   // --- もち米 ---（砕米・着色を避けるためやや早刈り寄りに設定）
   { name: 'こがねもち',       group: 'もち',   gdd: 1000, greenHi: 20, greenLo: 13, days: 43 },
-  { name: 'ヒメノモチ',       group: 'もち',   gdd: 980,  greenHi: 20, greenLo: 13, days: 42 },
-  { name: 'ヒヨクモチ',       group: 'もち',   gdd: 1050, greenHi: 20, greenLo: 13, days: 46 },
-  { name: 'マンゲツモチ',     group: 'もち',   gdd: 1000, greenHi: 20, greenLo: 13, days: 43 },
-
-  // --- 酒造好適米 ---（晩生で登熟に時間がかかるため積算目標が高め）
-  { name: '山田錦',           group: '酒米',   gdd: 1150, greenHi: 13, greenLo: 8,  days: 52 },
-  { name: '五百万石',         group: '酒米',   gdd: 1000, greenHi: 13, greenLo: 8,  days: 42 },
-  { name: '美山錦',           group: '酒米',   gdd: 1030, greenHi: 13, greenLo: 8,  days: 45 },
-  { name: '雄町',             group: '酒米',   gdd: 1130, greenHi: 13, greenLo: 8,  days: 50 },
-  { name: '出羽燦々',         group: '酒米',   gdd: 1050, greenHi: 13, greenLo: 8,  days: 46 },
+  { name: 'ゆきみらい',       group: 'もち',   gdd: 1000, greenHi: 20, greenLo: 13, days: 43 }, // ★
+  { name: 'わたぼうし',       group: 'もち',   gdd: 980,  greenHi: 20, greenLo: 13, days: 40 }, // ★
 ];
 
 const VARIETY_GROUPS = ['うるち', 'もち', '酒米'];
@@ -360,19 +361,63 @@ function saveDB() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
     saveFailed = false;
+    clearSaveError();
     return true;
   } catch (e) {
     saveFailed = true;
     console.error('保存に失敗しました:', e);
-    toast('保存できませんでした。設定タブの「データ管理」で古い履歴を削除してください。');
+    showSaveError();
     return false;
   }
 }
 
-/** 保存サイズの実測（バイト） */
+/**
+ * 保存に失敗したことを画面に残す。
+ *
+ * 【なぜトーストをやめたか】
+ * トーストは #toast 1つの中身を書き換えるだけなので、あとから出した
+ * ものが前のものを消す。保存に失敗した直後に呼び出し側が
+ * 「保存しました」と出すと、同じ処理の中で上書きされ、失敗の知らせは
+ * 一度も描画されない。利用者は保存できたと思い込む。
+ * saveDB() の戻り値を見ていない呼び出しが大半なので、なおさら気づけない。
+ *
+ * 消えない帯にして、次に保存が成功するまで出し続ける。
+ */
+function showSaveError() {
+  if (document.getElementById('save-error-bar')) return;
+  const bar = el('div', { id: 'save-error-bar', class: 'save-error-bar' }, [
+    el('span', { text: '保存できていません。このままだと記録が残りません。' }),
+    el('button', {
+      class: 'mini-btn', text: '古い履歴を消す',
+      onclick: () => {
+        const tab = $('.tab[data-tab="settings"]');
+        if (tab) tab.click();
+        const target = $('#btn-purge-old');
+        if (target && target.scrollIntoView) target.scrollIntoView({ block: 'center' });
+      },
+    }),
+  ]);
+  document.body.appendChild(bar);
+}
+
+function clearSaveError() {
+  const bar = document.getElementById('save-error-bar');
+  if (bar) bar.remove();
+}
+
+/**
+ * 保存サイズの見積もり（バイト）。
+ *
+ * 【Blob の大きさではない】
+ * 以前は new Blob([json]).size を使っていたが、これは UTF-8 での長さ。
+ * localStorage は文字を UTF-16 で数え、1文字あたり2バイトを容量に数える。
+ * 記録の中身はサムネイル（base64）と数値でほぼ ASCII なので、
+ * Blob の値は実際の消費のおよそ半分になり、
+ * 「上限に近づいています」が出る前に保存が失敗していた。
+ */
 function storageBytes() {
   try {
-    return new Blob([JSON.stringify(DB)]).size;
+    return (STORAGE_KEY.length + JSON.stringify(DB).length) * 2;
   } catch (e) {
     return 0;
   }
@@ -2252,6 +2297,22 @@ const SEP_SINGLE_MAX = 1.5;
 const SEP_CLUMP_WARN = 0.25;
 
 /**
+ * 触れ合ったかたまりの幅（短径）が、1粒の幅の何倍を下回ったら籾でないとみなすか。
+ *
+ * 【なぜ幅で見るのか】
+ * 籾が何粒つながっても、かたまりの幅は1粒ぶんのまま変わらない。
+ * 長さだけが伸びる。だから「面積は数粒ぶんあるのに幅が1粒に満たない」
+ * ものは、籾の並びではなく細長い異物（枝梗・葉・ひげ）である。
+ *
+ * 長さや細長さで見ると、何粒つながっているかで基準を変えねばならず、
+ * 籾が5粒並んだ列と枝梗を分けられない。幅なら粒数によらない。
+ *
+ * 0.55 は、合成画像で 160×9px の枝梗（幅の比 0.40）を外し、
+ * 実際の籾の幅のばらつきには触れない値。
+ */
+const SEP_MIN_CLUMP_WIDTH = 0.55;
+
+/**
  * バラした籾を数える。
  *
  * 戻り値は grainSegment と同じ形にそろえてあるので、
@@ -2322,28 +2383,46 @@ function grainSegmentSeparated(s, v, lightness, region, w, h) {
   const props = grainRegionProps(labels, keep.length, w, h);
   const ids = Object.keys(props).map(Number);
 
+  // --- 1回目：1粒ぶんのかたまりを検査し、1粒の幅を測る ---
+  //
+  // 形の検査は、以前は1粒ぶんのかたまりにしか掛けていなかった
+  // （複数つながると形がいびつになって当たり前のため）。
+  // ところがそれだと、面積が1粒ぶんの1.5倍を超える異物は
+  // 「2粒以上のかたまり」と見なされ、検査を1つも受けずに
+  // 面積÷1粒ぶん の粒数として、その色のまま数えられていた。
+  // 合成画像では枝梗を1本置くだけで黄化率が 90.0% → 81.8% になった。
+  const singleWidths = [];
+  for (const id of ids) {
+    const p = props[id];
+    p.grainCount = Math.max(1, Math.round(p.area / single));
+    if (p.grainCount > 1) continue;
+
+    if (p.area < single * 0.4) p.excludeReason = '小さすぎる';
+    else if (p.elongation > GRAIN_PARAMS.GRAIN_MAX_ELONGATION) p.excludeReason = '細長すぎる（枝梗・ゴミの可能性）';
+    else if (p.fill < GRAIN_PARAMS.GRAIN_MIN_FILL) p.excludeReason = '形がいびつ';
+    else { p.excludeReason = null; singleWidths.push(p.minor); }
+  }
+
+  // --- 2回目：触れ合ったかたまりを、幅で検査する ---
+  const singleWidth = singleWidths.length ? percentile(singleWidths, 50) : null;
+
   let grainTotal = 0;
   let clumped = 0;
   const validIds = [];
   const excludedIds = [];
   for (const id of ids) {
     const p = props[id];
-    const nGrains = Math.max(1, Math.round(p.area / single));
-    p.grainCount = nGrains;
-    if (nGrains > 1) clumped++;
-
-    // 形の検査。1粒ぶんのかたまりにだけ掛ける
-    // （複数がつながったかたまりは、形がいびつになって当たり前）。
-    let reason = null;
-    if (nGrains === 1) {
-      if (p.area < single * 0.4) reason = '小さすぎる';
-      else if (p.elongation > GRAIN_PARAMS.GRAIN_MAX_ELONGATION) reason = '細長すぎる（枝梗・ゴミの可能性）';
-      else if (p.fill < GRAIN_PARAMS.GRAIN_MIN_FILL) reason = '形がいびつ';
+    if (p.grainCount > 1) {
+      clumped++;
+      // 1粒だけの籾が1つも無い写真では幅の基準が作れない。
+      // その場合は検査せず通す（触れ合いの警告は別に出る）。
+      p.excludeReason = (singleWidth !== null && p.minor < singleWidth * SEP_MIN_CLUMP_WIDTH)
+        ? '細長すぎる（枝梗・ゴミの可能性）'
+        : null;
     }
-    p.excludeReason = reason;
-    if (reason === null) {
+    if (p.excludeReason === null) {
       validIds.push(id);
-      grainTotal += nGrains;
+      grainTotal += p.grainCount;
     } else {
       excludedIds.push(id);
     }
@@ -2388,6 +2467,26 @@ function grainSegmentSeparated(s, v, lightness, region, w, h) {
 // 正しい帯緑籾率(%)を返す。品種マスタの greenHi:15 / greenLo:10 は
 // 黄化率でいう 85% / 90% にあたり、指導基準と一致する。
 // つまりキャリブレーションは不要になる。
+
+/**
+ * 粒の一覧を「数えるためのラベルの並び」に開く。
+ *
+ * バラした写真では、触れ合って1つになったかたまりが複数粒ぶんを表す。
+ * そのかたまりのラベルを粒数ぶん繰り返さないと、割合も粒数も合わない。
+ *
+ * 解析した直後（analyzeGrains）と、人が塗り替えたあとの数え直し
+ * （recountFromGrains）の両方から、必ずこれを通して数えること。
+ * 以前は数え直しの側だけ1かたまり＝1粒で数えていて、粒を1つ
+ * 塗り替えただけで粒数が黙って減っていた。
+ */
+function grainLabelsWeighted(grains) {
+  const out = [];
+  for (const g of grains) {
+    const times = Math.max(1, g.weight || 1);
+    for (let t = 0; t < times; t++) out.push(g.label);
+  }
+  return out;
+}
 
 /**
  * 穂の写真から籾を1粒ずつ数えて黄化率を出す。
@@ -2454,15 +2553,6 @@ function analyzeGrains(imageData, rect, model, thresholds, separated) {
     }
     return model ? grainPredict(model, row) : grainAutoLabel(row, th);
   });
-  // バラした写真では、触れ合って1つになったかたまりが複数粒ぶんを表す。
-  // そのかたまりのラベルを粒数ぶん繰り返して数えると、割合が正しく出る。
-  const forCount = [];
-  feat.kept.forEach((gid, i) => {
-    const times = separated ? (seg.props[gid].grainCount || 1) : 1;
-    for (let t = 0; t < times; t++) forCount.push(labels[i]);
-  });
-  const counted = grainCount(forCount.concat(seg.excludedIds.map(() => 'exclude')));
-
   // --- 粒ごとの情報（あとで人が直せるようにするため） ---
   // 1粒ずつ確かめる画面と、その結果からのしきい値の学習に使う。
   // 27個の特徴量すべてではなく、判定に効く2つと切り抜きに要る位置だけ持つ
@@ -2480,8 +2570,23 @@ function analyzeGrains(imageData, rect, model, thresholds, separated) {
       brown: feat.rows[i][iBrown],
       bbox: p.bbox,                      // [x0, y0, x1, y1]（解析範囲の中の座標）
       area: p.area,
+      // このかたまりが何粒ぶんか。バラした写真で触れ合った籾は
+      // 1つのかたまりに複数粒が入る。
+      //
+      // 【この重みを持たせる理由】
+      // 粒を1つ塗り替えると recountFromGrains が数え直す。そこが
+      // 1かたまり＝1粒で数えていたため、塗り替えただけで粒数が
+      // 黙って減っていた（触れ合いが30組あれば30粒ぶん）。
+      // 数え方を2か所で一致させるために、粒の側に持たせる。
+      weight: separated ? (p.grainCount || 1) : 1,
     };
   });
+
+  // 数えるのは必ず grains から。人が塗り替えたあとの数え直し
+  // （recountFromGrains）と同じ材料・同じ数え方にするため。
+  const counted = grainCount(
+    grainLabelsWeighted(grains).concat(seg.excludedIds.map(() => 'exclude')),
+  );
 
   // --- 表示用のマスクを作る（既存のオーバーレイ描画がそのまま使える形） ---
   const LABEL_TO_PX = {
