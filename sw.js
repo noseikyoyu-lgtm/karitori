@@ -10,13 +10,19 @@
 // 古い取り込みは activate のときに消える。利用者は再読み込みするだけでよい。
 // （新しい版が用意できたことは register.js が画面で知らせる）
 
-const CACHE_NAME = 'kariire-070b37351825';
-const ASSETS = ["./","index.html","評価ツール.html","manifest.webmanifest","icon-192.png","icon-512.png","icon-180.png","icon-maskable-512.png"];
+const CACHE_NAME = 'kariire-1f1489daee6c';
+const ASSETS = ["./","index.html","manifest.webmanifest","icon-192.png","icon-512.png","icon-180.png","icon-maskable-512.png"];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME)
-      .then((c) => c.addAll(ASSETS))
+      // cache: 'reload' を付けて、必ずネットワークから取り直す。
+      //
+      // 既定では addAll もブラウザのHTTPキャッシュを見に行く。
+      // 直前まで開いていた古い index.html がそこに残っていると、
+      // 新しい取り込みの中に古い中身が入り、そのまま固定されてしまう。
+      // 取り込みの名前は新しいので、誰も食い違いに気づけない。
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
       // 新しい版をすぐ使えるようにする。待たせても得がない。
       .then(() => self.skipWaiting()),
   );
