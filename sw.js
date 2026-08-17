@@ -10,7 +10,7 @@
 // 古い取り込みは activate のときに消える。利用者は再読み込みするだけでよい。
 // （新しい版が用意できたことは register.js が画面で知らせる）
 
-const CACHE_NAME = 'kariire-1f1489daee6c';
+const CACHE_NAME = 'kariire-0d6233068a3c';
 const ASSETS = ["./","index.html","manifest.webmanifest","icon-192.png","icon-512.png","icon-180.png","icon-maskable-512.png"];
 
 self.addEventListener('install', (e) => {

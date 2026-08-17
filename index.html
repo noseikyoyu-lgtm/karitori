@@ -242,6 +242,26 @@ input[type="range"] { width: 130px; accent-color: var(--accent); }
 .help-steps { flex: 1 1 320px; margin: 0; padding-left: 20px; }
 .help-steps li { margin-bottom: 6px; }
 
+/* 「このアプリのしくみ」。図はSVGで描くので幅いっぱいに伸ばす。 */
+.about-fig { margin: 8px 0 14px; }
+.about-fig svg { width: 100%; height: auto; max-width: 560px; display: block; }
+.about-formula {
+  background: #eef2ea; border-left: 3px solid var(--accent);
+  padding: 8px 12px; margin: 8px 0; font-weight: 700;
+}
+#about-card h3 { margin: 18px 0 4px; font-size: 14px; color: var(--accent-dark); }
+#about-card h3:first-of-type { margin-top: 4px; }
+.about-table { border-collapse: collapse; font-size: 13px; margin: 4px 0; }
+.about-table th, .about-table td { padding: 5px 12px 5px 0; text-align: left; vertical-align: middle; }
+.about-table th { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.about-table td:first-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 判定バッジと同じ色を使う（v-early などは背景色だけを持つ）。 */
+.stage-chip {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap;
+}
+
+
 /* ---------- ドロップゾーン ---------- */
 .dropzone {
   border: 2px dashed var(--line);
@@ -688,6 +708,7 @@ dialog form { text-align: right; margin-top: 14px; }
   <div class="card">
     <div class="card-head">
       <h2>① 撮影条件</h2>
+      <button class="link-btn" id="btn-about">しくみ</button>
       <button class="link-btn" id="btn-shoot-help">撮影のしかた</button>
     </div>
     <div class="field-grid">
@@ -711,7 +732,54 @@ dialog form { text-align: right; margin-top: 14px; }
         <input type="date" id="in-shotdate">
       </label>
     </div>
-    <p class="note">白い紙の上に穂を並べて真上から撮った写真を使います。</p>
+    <p class="note">白い紙の上に<b>穂を1本</b>置き、真上から撮った写真を使います。</p>
+  </div>
+
+  <!-- 「このアプリのしくみ」。説明を別ファイルだけで持つと、アプリを直すたびに
+       追随が要り、実際に食い違った。数字も図もここで作る。 -->
+  <div id="about-card" class="card help-card" hidden>
+    <div class="card-head">
+      <h2>このアプリのしくみ</h2>
+      <button class="link-btn" id="btn-close-about">閉じる</button>
+    </div>
+
+    <h3>何を測っているか</h3>
+    <p><b>1穂の籾のうち、何割が黄色くなったか</b>だけを測っています。</p>
+    <p class="about-formula">籾黄化率 ＝ 黄化した籾の数 ÷ 1穂の全部の籾の数</p>
+    <p>現場の調査法と同じ「籾を1粒ずつ数える」やり方です。<b>籾の数で数えているので、換算は要りません。</b></p>
+
+    <h3>どうやって数えているか</h3>
+    <div class="about-fig" id="about-flow"></div>
+    <ol class="help-steps">
+      <li><b>白い紙を見つけます。</b> 写真の中で「白くて明るいひとつながりの面」を探し、その内側だけを見ます。机や地面を籾と間違えないためです。この白は<b>色の基準</b>にもなります。</li>
+      <li><b>籾だけを取り出します。</b> 紙より色が付いている部分を籾とみなします。</li>
+      <li><b>1粒ずつに切り分けます。</b> かたまりの太さから籾1粒の大きさを見積もり、その大きさで区切ります。</li>
+      <li><b>1粒ずつ色で分けます。</b> 粒の中で緑の画素がどれだけ残っているかを見ます。</li>
+    </ol>
+
+    <h3>籾の色の分け方</h3>
+    <div class="about-fig" id="about-colors"></div>
+    <p><b>緑がわずかでも残っていれば「帯緑」</b>です。「黄化」は緑が完全に抜けた籾だけを指します。
+      この境目が判定を最も左右します。</p>
+
+    <h3>判定の5段階</h3>
+    <div id="about-stages"></div>
+    <p class="note">積算温度と出穂後日数も参考にしますが、<b>判定の中心は籾黄化率</b>です。
+      写真から直接測った唯一の値だからです。食い違うときは理由欄に両方出します。</p>
+
+    <h3>どこまで信じてよいか</h3>
+    <ul class="help-steps">
+      <li><b>穂をよく広げてください。</b> 籾が重なると陰に隠れた分が数から漏れます。実測で、広げた穂は誤差1.4%、閉じた穂は<b>30%が漏れました</b>。精度に最も効きます。</li>
+      <li><b>色の境目は、まだ85%付近で確かめていません。</b> 手で数えた穂3本（黄化率50〜75%）に合わせた値です。<b>刈取の判断が変わる領域での裏付けはありません。</b></li>
+      <li><b>撮影機種で数値が変わります。</b> 白い紙で色かぶりは補正しますが、メーカーごとの色の作り方までは打ち消せません。<b>同じ圃場は同じ端末で撮り、端末をまたいで数値を比べないでください。</b></li>
+      <li><b>直射日光を避けてください。</b> 紙に落ちた影が青空の色を拾い、籾の切り分けが乱れます。明るい日陰か曇天が最適です。</li>
+    </ul>
+    <p class="note warn-note"><b>最終的な刈取判断は、必ず現地の状況とご自身の目で確認してください。</b>
+      この道具は、見落としを減らし、判断をそろえるための補助です。</p>
+
+    <h3>データの置き場所</h3>
+    <p>写真も記録も<b>この端末の中だけ</b>に保存されます。外部に送信する機能はありません。
+      他の端末へ移すときは、履歴タブの「JSON書き出し／読み込み」を使ってください。</p>
   </div>
 
   <div id="shoot-help" class="card help-card" hidden>
@@ -720,7 +788,7 @@ dialog form { text-align: right; margin-top: 14px; }
       <div class="help-fig" id="help-figure"></div>
       <ol class="help-steps">
         <li><b>白いコピー用紙</b>（またはバット）を地面に置く。</li>
-        <li>圃場を代表するように、<b>数か所から穂を5〜10本</b>抜き取る。<b>葉は取り除き</b>、穂が重ならないよう並べる。</li>
+        <li><b>穂を1本だけ</b>置く。<b>葉と枝梗の余分は取り除き</b>、籾が重ならないよう広げる。<br><b>穂先から穂元まで全部を画面に入れる。</b>切れると黄化率が高く出て早刈りになります。</li>
         <li><b>真上から</b>、影が入らないよう撮影する。明るい日陰か曇天が最適。直射日光の照り返しは避ける。</li>
         <li>紙が写真の<b>すみに少し写る</b>ようにする（この白を基準に色を補正します）。</li>
         <li>フラッシュは使わない。極端なズームや加工アプリは使わない。</li>
@@ -1016,7 +1084,7 @@ dialog form { text-align: right; margin-top: 14px; }
 <script>
 /* ===== js: core/version.js ===== */
 // 版の情報（build.mjs が自動生成）。設定タブの下に出る。
-const APP_VERSION = {"date":"2026-08-17","hash":"1f1489da","git":"efce73f+"};
+const APP_VERSION = {"date":"2026-08-17","hash":"0d623306","git":"3c41e44"};
 
 /* ===== js: core/build-flags.js ===== */
 // build.mjs が自動生成。開発用の版だけ true。
@@ -5161,6 +5229,159 @@ function drawCalibScatter(canvas, points, calib) {
   }
 }
 
+/* ===== js: ui/about.js ===== */
+// 「このアプリのしくみ」
+//
+// 【なぜアプリの中に入れるのか】
+// 説明を別ファイル（Word）だけで持つと、アプリを直すたびに追随が要る。
+// 実際、1週間で中身が食い違った（学習の章が丸ごと実態と合わなくなった）。
+// src/ から作れば、アプリを直せば説明も一緒に更新され、利用者は
+// いつ開いても手元の版に合った説明を読める。
+//
+// 図はPNGを貼らずにSVGで描く。ファイルを増やさずに済み、
+// 画面の大きさに合わせて伸び縮みする（撮影のしかたの図と同じ考え）。
+
+function initAbout() {
+  const card = $('#about-card');
+  if (!card) return;
+  $('#btn-about').addEventListener('click', () => {
+    card.hidden = !card.hidden;
+    if (!card.hidden) {
+      renderAbout();
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+  $('#btn-close-about').addEventListener('click', () => { card.hidden = true; });
+}
+
+/** 一度だけ組み立てる。開くたびに作り直す必要はない。 */
+let aboutBuilt = false;
+function renderAbout() {
+  if (aboutBuilt) return;
+  aboutBuilt = true;
+  $('#about-flow').innerHTML = aboutFlowSvg();
+  $('#about-colors').innerHTML = aboutColorSvg();
+  renderAboutStages();
+}
+
+/**
+ * 判定の5段階。しきい値は品種マスタと STAGE_MARGIN から作る。
+ * 説明文に数字を直接書くと、値を変えたときにここだけ古くなる。
+ */
+function renderAboutStages() {
+  const box = $('#about-stages');
+  if (!box) return;
+  box.textContent = '';
+  const v = findVariety($('#in-variety').value) || DB.varieties[0];
+  if (!v) return;
+
+  // 品種マスタは帯緑籾率で持っている。表示は黄化率の向きにそろえる。
+  const hi = 100 - v.greenHi;   // 適期の入口
+  const lo = 100 - v.greenLo;   // 適期の出口
+  const early = hi - GRAIN_PARAMS.STAGE_MARGIN_EARLY;
+  const late = lo + GRAIN_PARAMS.STAGE_MARGIN_LATE;
+
+  // 並びは黄化率が低い順＝早い順。thresholds.js の stageFromGreenRatio と
+  // 同じ境目になるよう、帯緑籾率の側で計算してから向きを反転している。
+  const rows = [
+    ['early', `${early.toFixed(0)}%より下`, 'まだ登熟中です'],
+    ['pre', `${early.toFixed(0)}〜${hi.toFixed(0)}%`, 'そろそろ準備を'],
+    ['best', `${hi.toFixed(0)}〜${lo.toFixed(0)}%`, '今が刈りどきです'],
+    ['post', `${lo.toFixed(0)}〜${late.toFixed(0)}%`, '早めに刈ってください'],
+    ['late', `${late.toFixed(0)}%より上`, '胴割れ・品質低下のおそれ'],
+  ];
+  const table = el('table', { class: 'about-table' }, [
+    el('thead', null, [el('tr', null, [
+      el('th', { text: '籾黄化率' }), el('th', { text: '判定' }), el('th', { text: '意味' }),
+    ])]),
+    el('tbody', null, rows.map(([stage, range, mean]) => el('tr', null, [
+      el('td', { text: range }),
+      el('td', null, [el('span', { class: 'stage-chip ' + STAGE_INFO[stage].cls, text: STAGE_INFO[stage].label })]),
+      el('td', { text: mean }),
+    ]))),
+  ]);
+  box.appendChild(table);
+  box.appendChild(el('p', { class: 'note', text:
+    `${v.name}の場合。品種ごとの値は設定タブで変えられます。` }));
+}
+
+/** 写真から黄化率が出るまでの4段階。 */
+function aboutFlowSvg() {
+  const step = (x, title) => `<text x="${x + 46}" y="14" text-anchor="middle" font-size="10" fill="#5c6b58">${title}</text>`;
+  const box = (x) => `<rect x="${x}" y="20" width="92" height="70" fill="#fff" stroke="#cfd8ca" rx="4"/>`;
+  const arrow = (x) => `<path d="M${x} 55 L${x + 14} 55" stroke="#7d8a79" stroke-width="2"/>`
+    + `<path d="M${x + 10} 51 L${x + 16} 55 L${x + 10} 59 Z" fill="#7d8a79"/>`;
+
+  // 穂は1本。撮り方が1穂ずつなので、図もそれに合わせる。
+  // 枝梗を左右に広げて、籾が重ならない置き方を示す。
+  const panicle = (bx, color) => {
+    const cx = bx + 40;
+    let s = `<line x1="${cx}" y1="30" x2="${cx}" y2="80" stroke="#b9c48f" stroke-width="1.6"/>`;
+    for (let k = 0; k < 7; k++) {
+      const y = 32 + k * 7;
+      const sp = 7 + k * 2.2;
+      for (const d of [-1, 1]) {
+        const gx = cx + d * sp;
+        s += `<line x1="${cx}" y1="${y}" x2="${gx}" y2="${y + 3}" stroke="#b9c48f" stroke-width="0.8"/>`;
+        s += `<ellipse cx="${gx}" cy="${y + 3}" rx="3.4" ry="2.2" fill="${color(k, d)}"/>`;
+      }
+    }
+    return s;
+  };
+  const ripe = (k) => (k < 2 ? '#8cb84a' : '#e0b33a');
+
+  // ① 写真：紙の上に穂1本
+  const s1 = box(0) + step(0, '① 写真')
+    + '<rect x="6" y="26" width="80" height="58" fill="#f2f2f0"/>'
+    + panicle(6, ripe);
+
+  // ② 紙の範囲を見つける
+  const s2 = box(106) + step(106, '② 紙の範囲')
+    + '<rect x="112" y="26" width="80" height="58" fill="#f2f2f0"/>'
+    + '<rect x="115" y="29" width="74" height="52" fill="none" stroke="#3f7d3a" stroke-width="2" stroke-dasharray="4 3"/>'
+    + '<text x="152" y="58" text-anchor="middle" font-size="9" fill="#3f7d3a">ここだけ見る</text>';
+
+  // ③ 籾だけを取り出す
+  const s3 = box(212) + step(212, '③ 籾だけ')
+    + '<rect x="218" y="26" width="80" height="58" fill="#3a4238"/>'
+    + panicle(218, () => '#e8e8e4').replace(/stroke="#b9c48f"/g, 'stroke="none"');
+
+  // ④ 1粒ずつ色で分ける
+  const cols = ['#8cb84a', '#c9d24a', '#e0b33a', '#e0b33a', '#a9762c'];
+  const s4 = box(318) + step(318, '④ 1粒ずつ')
+    + '<rect x="324" y="26" width="80" height="58" fill="#f2f2f0"/>'
+    + panicle(324, (k, d) => cols[(k + (d > 0 ? 1 : 0)) % cols.length]);
+
+  return '<svg viewBox="0 0 410 100" xmlns="http://www.w3.org/2000/svg" role="img"'
+    + ' aria-label="写真から紙の範囲を決め、籾だけを取り出し、1粒ずつ色で分ける流れ">'
+    + s1 + arrow(92) + s2 + arrow(198) + s3 + arrow(304) + s4
+    + '</svg>';
+}
+
+/** 籾の色の分け方。 */
+function aboutColorSvg() {
+  const items = [
+    ['#8cb84a', '緑', '全体が緑'],
+    ['#c9d24a', '帯緑', '緑が一部残る'],
+    ['#e0b33a', '黄化', '緑が完全に抜けた'],
+    ['#a9762c', '褐変', '茶色くなった'],
+  ];
+  let s = '';
+  items.forEach(([c, name, desc], i) => {
+    const x = 8 + i * 100;
+    s += `<ellipse cx="${x + 20}" cy="24" rx="17" ry="11" fill="${c}" stroke="#8a927f"/>`;
+    s += `<text x="${x + 20}" y="52" text-anchor="middle" font-size="11" font-weight="700" fill="#39412f">${name}</text>`;
+    s += `<text x="${x + 20}" y="66" text-anchor="middle" font-size="9" fill="#5c6b58">${desc}</text>`;
+  });
+  // 黄化率に数える範囲
+  s += '<path d="M206 76 L400 76" stroke="#b4463a" stroke-width="2"/>';
+  s += '<path d="M206 72 L206 80 M400 72 L400 80" stroke="#b4463a" stroke-width="2"/>';
+  s += '<text x="303" y="92" text-anchor="middle" font-size="10" fill="#b4463a">この2つを「黄化した籾」に数えます</text>';
+  return '<svg viewBox="0 0 410 100" xmlns="http://www.w3.org/2000/svg" role="img"'
+    + ' aria-label="緑・帯緑・黄化・褐変の4種類。黄化と褐変を黄化した籾に数える">'
+    + s + '</svg>';
+}
+
 /* ===== js: ui/tab-judge.js ===== */
 // 判定タブ
 
@@ -5256,6 +5477,7 @@ function initJudgeTab() {
   if (typeof initGrainLabel === 'function') initGrainLabel();
   if (typeof initHandCheck === 'function') initHandCheck();
   drawHelpFigure();
+  initAbout();
 }
 
 // ---------------- 選択肢の同期 ----------------
@@ -5813,21 +6035,25 @@ function saveCurrentRecord() {
 
 function drawHelpFigure() {
   $('#help-figure').innerHTML = [
-    '<svg viewBox="0 0 260 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="白い紙の上に穂を並べて真上から撮影する図">',
+    '<svg viewBox="0 0 260 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="白い紙の上に穂を1本置いて真上から撮影する図">',
     '<rect x="0" y="0" width="260" height="190" fill="#eef2ea" rx="8"/>',
     // 白い紙
     '<rect x="34" y="58" width="192" height="112" fill="#ffffff" stroke="#cfd8ca" rx="4"/>',
-    // 穂（5本）
+    // 穂は1本。枝梗を広げて籾が重ならない状態を描く。
+    // 以前は5本描いていたが、撮り方は1穂ずつなので、図と手順が食い違っていた。
     (function () {
       let s = '';
-      for (let i = 0; i < 5; i++) {
-        const x = 58 + i * 36;
-        s += `<line x1="${x}" y1="76" x2="${x}" y2="154" stroke="#b9c48f" stroke-width="2"/>`;
-        for (let k = 0; k < 9; k++) {
-          const y = 80 + k * 8;
-          const fill = k < 3 - (i % 2) ? '#8cb84a' : '#e0b33a';
-          s += `<ellipse cx="${x - 5}" cy="${y}" rx="4" ry="2.6" fill="${fill}"/>`;
-          s += `<ellipse cx="${x + 5}" cy="${y + 4}" rx="4" ry="2.6" fill="${fill}"/>`;
+      const cx = 130;
+      s += `<line x1="${cx}" y1="72" x2="${cx}" y2="158" stroke="#b9c48f" stroke-width="2.5"/>`;
+      for (let k = 0; k < 10; k++) {
+        const y = 76 + k * 8.4;
+        const spread = 14 + k * 3.4;          // 穂元へ行くほど広がる
+        const fill = k < 3 ? '#8cb84a' : '#e0b33a';
+        for (const dir of [-1, 1]) {
+          const bx = cx + dir * spread;
+          s += `<line x1="${cx}" y1="${y}" x2="${bx}" y2="${y + 4}" stroke="#b9c48f" stroke-width="1.2"/>`;
+          s += `<ellipse cx="${bx}" cy="${y + 4}" rx="5" ry="3" fill="${fill}"`
+            + ` transform="rotate(${dir * 18} ${bx} ${y + 4})"/>`;
         }
       }
       return s;
@@ -5840,7 +6066,7 @@ function drawHelpFigure() {
     '</g>',
     '<path d="M130 40 L130 54" stroke="#7d8a79" stroke-width="2" stroke-dasharray="3 3"/>',
     '<path d="M126 50 L130 56 L134 50 Z" fill="#7d8a79"/>',
-    '<text x="130" y="185" text-anchor="middle" font-size="10" fill="#5c6b58">白い紙の上に穂を並べ、真上から撮る</text>',
+    '<text x="130" y="185" text-anchor="middle" font-size="10" fill="#5c6b58">白い紙の上に穂を1本、真上から撮る</text>',
     '</svg>',
   ].join('');
 }
