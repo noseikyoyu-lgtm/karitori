@@ -10,7 +10,7 @@
 // 古い取り込みは activate のときに消える。利用者は再読み込みするだけでよい。
 // （新しい版が用意できたことは register.js が画面で知らせる）
 
-const CACHE_NAME = 'kariire-0d6233068a3c';
+const CACHE_NAME = 'kariire-7240733250e7';
 const ASSETS = ["./","index.html","manifest.webmanifest","icon-192.png","icon-512.png","icon-180.png","icon-maskable-512.png"];
 
 self.addEventListener('install', (e) => {
@@ -28,11 +28,29 @@ self.addEventListener('install', (e) => {
   );
 });
 
+// 自分の古い取り込みかどうかを見分ける。
+//
+// 【なぜ名前で絞るか】
+// 取り込みは「このアプリの分」ではなく「このサイトの分」として保存される。
+// 以前は自分以外を全部消していたため、同じサイトに置いた
+// 配布用と開発用が互いの取り込みを消し合っていた。
+// 開発用を開いたあとで圏外に行くと、配布用が真っ白になる。
+// 同じサイトに別のアプリを置いた場合も巻き込んでいた。
+const DEV_PREFIX = 'kariire-dev-';
+const APP_PREFIX = 'kariire-';
+const IS_DEV_CACHE = CACHE_NAME.indexOf(DEV_PREFIX) === 0;
+
+function isMyOldCache(k) {
+  if (k === CACHE_NAME) return false;               // 今使っている分
+  if (k.indexOf(APP_PREFIX) !== 0) return false;    // よそのアプリの分
+  return (k.indexOf(DEV_PREFIX) === 0) === IS_DEV_CACHE;
+}
+
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
+        keys.filter(isMyOldCache).map((k) => caches.delete(k)),
       ))
       .then(() => self.clients.claim()),
   );

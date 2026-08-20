@@ -163,19 +163,6 @@ input:focus, select:focus, button:focus-visible {
 }
 input[type="range"] { width: 130px; accent-color: var(--accent); }
 
-.mode-row {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--line);
-  flex-wrap: wrap;
-}
-.mode-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
-.radio { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.radio input { accent-color: var(--accent); }
-.radio small { color: var(--ink-soft); }
 
 /* ---------- ボタン ---------- */
 .primary-btn {
@@ -620,6 +607,9 @@ body:has(#save-error-bar) .update-bar { bottom: 78px; }
   font-size: 13px;
   z-index: 100;
   box-shadow: 0 3px 12px rgba(0, 0, 0, .25);
+  /* left:50% だけだと、縮まる余地が画面の半分しか無い。
+     長い知らせが細長い柱になって読みにくかった。 */
+  max-width: min(92vw, 520px);
 }
 dialog {
   border: 0;
@@ -661,6 +651,13 @@ dialog form { text-align: right; margin-top: 14px; }
      .link-btn（撮影のしかた・閉じる）と .tab が漏れていた。
      どちらも判定の流れの中にあり、圃場では手袋のまま押すこともある。 */
   .primary-btn, .mini-btn, .teach-btn, .paint-btn { min-height: 44px; }
+  /* 「あとで」を押したあと、更新の知らせを出し直せる唯一の入口。
+     11pxで高さ25pxしかなく、指では押しにくかった。 */
+  .version-chip { min-height: 44px; padding: 0 12px; display: inline-flex; align-items: center; }
+  /* ＋（圃場を足す）は高さだけ44pxで、幅が36pxしかなかった */
+  .mini-btn { min-width: 44px; }
+  /* 入力欄も指で押す。品種や圃場の選択は判定タブの主役。 */
+  .field select, .field input { min-height: 44px; }
   .link-btn { min-height: 44px; padding: 0 4px; }
   .tab { padding: 12px 14px; }
   .tool-row { gap: 8px; }
@@ -678,11 +675,42 @@ dialog form { text-align: right; margin-top: 14px; }
 .hand-table td { padding: 5px 14px 5px 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hand-table .hand-diff { font-weight: 700; }
 
-/* 初回の注意書き。判定がまだ検証途中であることを目立たせる。 */
-.first-warn {
-  background: #fdf0ef; border-left: 4px solid var(--danger);
-  border-radius: 4px; padding: 10px 12px; margin: 0 0 12px;
+/* 同じ穂の続きを撮っているときの目印 */
+.panicle-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid #b8862b;
+  border-left: 4px solid #b8862b;
+  border-radius: 6px;
+  background: #fdf6e3;
+  color: #5c4210;
+  font-size: 13px;
 }
+.panicle-chip[hidden] { display: none; }
+
+/* 廃止したモードで撮った古い記録。今の値と尺度が違うので目で分かるようにする */
+.num.legacy { color: #8a8a8a; font-style: italic; }
+
+/* 更新の記録 */
+.changelog { margin-top: 4px; }
+.cl-date {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.changelog > .cl-date:first-child { margin-top: 0; }
+.cl-list { margin: 0; padding-left: 20px; }
+.cl-list li { margin: 5px 0; font-size: 13px; line-height: 1.7; }
+.cl-list li.cl-big { font-weight: 600; }
+.cl-list li.cl-big::marker { content: '\25c6\00a0'; color: #b8862b; }
+#whats-new { max-width: 640px; }
+#whats-new-body { max-height: 60vh; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -803,6 +831,16 @@ dialog form { text-align: right; margin-top: 14px; }
       <span class="head-hint pc-only">ドラッグ&amp;ドロップ／クリック選択／Ctrl+V貼り付け</span>
     </div>
 
+    <!-- 同じ穂の続きを撮るところだという目印。
+         以前は画面に何も出ないまま内部で印を保持しており、
+         「もう1枚撮る」を押してから選択をやめても印が残り、
+         あとで撮った別の穂が同じ穂の1枚として記録されていた。
+         見えるようにし、やめる道を作る。 -->
+    <div class="panicle-chip" id="panicle-chip" hidden>
+      <span id="panicle-chip-text"></span>
+      <button class="mini-btn" id="btn-new-panicle">別の穂にする</button>
+    </div>
+
     <div class="dropzone" id="dropzone" tabindex="0">
       <div class="dz-inner">
         <div class="dz-icon">📷</div>
@@ -861,6 +899,9 @@ dialog form { text-align: right; margin-top: 14px; }
     </div>
     <div class="actions">
       <button class="primary-btn" id="btn-save">この結果を記録する</button>
+      <!-- 同じ穂を置き直して撮り直すと、置き方だけで黄化率が4.8ポイント動く（実測）。
+           判断の境目では1枚で決められないので、次の一手をボタンにしておく。 -->
+      <button class="mini-btn" id="btn-again" hidden>この穂をもう1枚撮る</button>
       <span class="save-msg" id="save-msg"></span>
     </div>
   </div>
@@ -907,7 +948,7 @@ dialog form { text-align: right; margin-top: 14px; }
           <tr>
             <th>撮影日</th><th>圃場</th><th>品種</th><th>写真</th>
             <th>黄化率</th><th>緑籾指数</th><th>推定帯緑籾率</th><th>積算温度</th><th>判定</th>
-            <th>あなたの判定<small>（学習に使用）</small></th><th>実測帯緑籾率</th><th></th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="hist-body"></tbody>
@@ -985,47 +1026,23 @@ dialog form { text-align: right; margin-top: 14px; }
       <b>粒カウント方式（推奨）</b>：写真から籾を1粒ずつ検出して数え、
       <b>籾黄化率 ＝ 黄化した籾数 ÷ 1穂の全籾数</b> を直接求めます。
       現場の調査法と同じ数え方で、<b>黄化率85%以上が刈取適期</b>です。
-      籾数で直接測るので、下の「実測値による補正（キャリブレーション）」は要りません。
+      籾数で直接測るので、換算も補正も要りません。
     </p>
     <p class="note">
       チェックを外すと<b>従来の画素方式</b>（緑色をした画素の割合）に戻ります。
       籾が重なっていて1粒ずつに分けられない写真では、こちらのほうが安定する場合があります。
-      ただし画素方式は、一部だけ緑が残る籾を「ほぼ黄色」と見なすため
-      黄化率を高めに出す傾向があります（手数えとの比較で+5.6ポイント）。
-      その分をキャリブレーションで補正して使ってください。
+      ただし画素方式は、一部だけ緑が残る籾を「ほぼ黄色」と見なすため、
+      黄化率を<b>5.6ポイントほど高め</b>に出します（手数えとの比較）。
+      その分を補正する仕組みはこの版に入っていません。
+      <b>刈取日の判断には粒カウント方式を使ってください。</b>
     </p>
-  </div>
-
-  <div class="card">
-    <div class="card-head">
-      <h2>手数えとの答え合わせ</h2>
-    </div>
-    <p class="note">
-      判定タブの「⑤ 手数えと比べる」に入れた実測値との突き合わせです。
-    </p>
-    <p class="note warn-note">
-      <b>色の境目の初期値は、手で数えた穂3本（籾黄化率50〜75%）に合わせたものです。</b>
-      その3本は値を決めるのに使ったので、精度の裏付けにはなりません。
-      <b>刈取の判断が変わる85%付近では、まだ一度も確かめていません。</b>
-      お使いの圃場・品種では数値が異なることがあります。現地の状況とご自身の目で必ず確認してください。
-    </p>
-    
   </div>
 
   
 
-  <div class="card">
-    <div class="card-head"><h2>キャリブレーション（実測値による補正）</h2></div>
-    <p class="note">
-      履歴に<b>実測の帯緑籾率</b>（手で数えた値）を入力すると、緑籾指数から帯緑籾率への換算式が自動で補正されます。
-      3件以上で有効になります。
-    </p>
-    <div class="calib-row">
-      <canvas id="cv-calib" height="220"></canvas>
-      <div class="calib-info" id="calib-info"></div>
-    </div>
-    <div class="actions left"><button class="mini-btn" id="btn-reset-calib">換算式を初期化</button></div>
-  </div>
+  
+
+  
 
   <div class="card">
     <div class="card-head"><h2>色の判定しきい値（上級者向け）</h2>
@@ -1044,8 +1061,20 @@ dialog form { text-align: right; margin-top: 14px; }
     <p class="note" id="storage-text"></p>
     <div class="actions left">
       <button class="mini-btn" id="btn-purge-old">1年より前の履歴を削除</button>
+      <!-- 容量があふれたとき、1年より前の履歴が無い人（初年度の利用者）には
+           上のボタンが効かない。容量の大半は写真なので、数字を残したまま
+           写真だけ落とせる道を用意する。 -->
+      <button class="mini-btn" id="btn-drop-thumbs">写真だけ消す（数字と判定は残す）</button>
       <button class="mini-btn danger" id="btn-clear-all">すべてのデータを削除</button>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>更新の記録</h2>
+      <span class="head-hint">アプリが新しくなったとき、何が変わったか</span>
+    </div>
+    <div id="changelog-box"></div>
   </div>
 
   <div class="card">
@@ -1064,14 +1093,16 @@ dialog form { text-align: right; margin-top: 14px; }
 
 <div class="toast" id="toast" hidden></div>
 
+<!-- 更新のあと、開いたときに1度だけ出る。中身は core/changelog.js。 -->
+<dialog id="whats-new">
+  <h2>アプリが新しくなりました</h2>
+  <div id="whats-new-body"></div>
+  <p class="note">この内容は、設定タブの「更新の記録」でいつでも見返せます。</p>
+  <form method="dialog"><button class="primary-btn">閉じる</button></form>
+</dialog>
+
 <dialog id="first-run">
   <h2>はじめにお読みください</h2>
-  <p class="first-warn">
-    <b>この判定はまだ検証の途中です。今シーズンは従来のやり方と併用してください。</b>
-    籾の色を分ける境目は、手で数えた穂<b>3本</b>に合わせてあります。
-    ただしその3本は籾黄化率50〜75%で、<b>刈取の判断が変わる85%付近では
-    まだ一度も確かめていません。</b>
-  </p>
   <p>品種ごとの<b>目標積算温度</b>や<b>適期の帯緑籾率</b>の初期値は、一般に言われている目安を入れてあります。</p>
   <p>地域・作期・栽培法で適正値は変わります。<b>設定タブでお使いの地域の指導基準に合わせてから</b>ご利用ください。</p>
   <p class="note">
@@ -1084,7 +1115,7 @@ dialog form { text-align: right; margin-top: 14px; }
 <script>
 /* ===== js: core/version.js ===== */
 // 版の情報（build.mjs が自動生成）。設定タブの下に出る。
-const APP_VERSION = {"date":"2026-08-18","hash":"0d623306","git":"6ca8aa7"};
+const APP_VERSION = {"date":"2026-08-21","hash":"72407332","git":"9728bc1+"};
 
 /* ===== js: core/build-flags.js ===== */
 // build.mjs が自動生成。開発用の版だけ true。
@@ -1093,8 +1124,8 @@ const APP_DEV = false;
 /* ===== js: analysis/grain-worker-src.js ===== */
 // 別スレッド用の解析コード（build.mjs が src/analysis/ から自動生成）。
 // 画面用と同じファイルから作っているので、手で直す必要も、直す場所もない。
-// 7ファイル / 87 KB
-const GRAIN_WORKER_SRC = "const clamp = (v, lo, hi) => (v \u003c lo ? lo : v > hi ? hi : v);\r\nfunction fmtPct(v, digits) { return (v * 100).toFixed(digits === undefined ? 1 : digits) + '%'; }\r\nfunction grainThresholds() { return GRAIN_PARAMS; }  // 保存が無いので既定値。実際は呼ぶ側が渡す\r\n\r\n/* ===== js: analysis/colorspace.js ===== */\r\n// 色空間変換と画素分類\r\n\r\n// 画素の分類ID\r\nconst PX_BG = 0;      // 背景（白紙・暗幕・範囲外）\r\nconst PX_GREEN = 1;   // 緑籾（未熟）\r\nconst PX_YG = 2;      // 黄緑（帯緑＝移行帯）\r\nconst PX_YELLOW = 3;  // 完熟黄\r\nconst PX_BROWN = 4;   // 褐変（刈り遅れ・枯れ）\r\nconst PX_OTHER = 5;   // 分類外（低彩度・想定外の色相）\r\n\r\nconst PX_COLORS = {\r\n  [PX_GREEN]:  [ 46, 160,  60],\r\n  [PX_YG]:     [168, 192,  40],\r\n  [PX_YELLOW]: [232, 178,  32],\r\n  [PX_BROWN]:  [150,  92,  40],\r\n  [PX_OTHER]:  [130, 130, 130],\r\n};\r\n\r\nconst PX_LABELS = {\r\n  [PX_GREEN]: '緑籾（未熟）',\r\n  [PX_YG]: '黄緑（帯緑）',\r\n  [PX_YELLOW]: '完熟黄',\r\n  [PX_BROWN]: '褐変',\r\n  [PX_OTHER]: '分類外',\r\n};\r\n\r\n/**\r\n * RGB(0-255) → HSV。h は 0-360、s と v は 0-1。\r\n * 画素ループから毎回呼ぶため、戻り値は使い回しの配列に書き込む。\r\n */\r\nfunction rgbToHsv(r, g, b, out) {\r\n  const rn = r / 255, gn = g / 255, bn = b / 255;\r\n  const max = rn > gn ? (rn > bn ? rn : bn) : (gn > bn ? gn : bn);\r\n  const min = rn \u003c gn ? (rn \u003c bn ? rn : bn) : (gn \u003c bn ? gn : bn);\r\n  const d = max - min;\r\n  let h = 0;\r\n  if (d !== 0) {\r\n    if (max === rn) h = 60 * (((gn - bn) / d) % 6);\r\n    else if (max === gn) h = 60 * ((bn - rn) / d + 2);\r\n    else h = 60 * ((rn - gn) / d + 4);\r\n    if (h \u003c 0) h += 360;\r\n  }\r\n  out[0] = h;\r\n  out[1] = max === 0 ? 0 : d / max;\r\n  out[2] = max;\r\n  return out;\r\n}\r\n\r\n/** Excess Green（植生抽出の定番指標）。正の値ほど緑が優勢。 */\r\nfunction excessGreen(r, g, b) {\r\n  return (2 * g - r - b) / 255;\r\n}\r\n\r\n/**\r\n * 色相と彩度から籾の分類を決める。\r\n * 境界値は設定タブで変更できる（hsv オブジェクト）。\r\n */\r\nfunction classifyPixel(h, s, hsv) {\r\n  if (s \u003c hsv.minSat) return PX_OTHER;           // 色が薄すぎて判断できない\r\n  if (h >= hsv.greenMin && h \u003c= hsv.greenMax) return PX_GREEN;\r\n  if (h >= hsv.ygMin && h \u003c hsv.ygMax) return PX_YG;\r\n  if (h >= hsv.yellowMin && h \u003c hsv.yellowMax) return PX_YELLOW;\r\n  if (h >= hsv.brownMin && h \u003c hsv.brownMax) return PX_BROWN;\r\n  return PX_OTHER;                                // 赤紫・青など、籾ではありえない色\r\n}\r\n\r\n/* ===== js: analysis/panicle.js ===== */\r\n// 穂アップ解析（本判定）\r\n//\r\n// 白い紙の上に並べた穂を真上から撮った写真から、籾の緑／黄の比率を求める。\r\n//\r\n// 【この数値の意味】\r\n// ここで得られるのは「緑色をした画素の割合」であって、籾を1粒ずつ数えた帯緑籾率そのものではない。\r\n// 両者は強く相関するが同じ値ではないため、生値を「緑籾指数」と呼んで区別し、\r\n// 帯緑籾率への換算は judge/calibrate.js のキャリブレーションに任せる。\r\n\r\nconst HUE_BINS = 180; // 2度きざみ\r\n\r\n/**\r\n * @param {ImageData} imageData 作業解像度の画像\r\n * @param {?{x:number,y:number,w:number,h:number}} rect 解析範囲（画像座標、nullなら全体）\r\n * @param {'auto'|'white'|'dark'} bgMode 背景の種類\r\n * @param {object} hsv しきい値\r\n */\r\nfunction analyzePanicle(imageData, rect, bgMode, hsv) {\r\n  const W = imageData.width;\r\n  const H = imageData.height;\r\n\r\n  const rx = rect ? clamp(Math.round(rect.x), 0, W - 1) : 0;\r\n  const ry = rect ? clamp(Math.round(rect.y), 0, H - 1) : 0;\r\n  const rw = rect ? clamp(Math.round(rect.w), 1, W - rx) : W;\r\n  const rh = rect ? clamp(Math.round(rect.h), 1, H - ry) : H;\r\n\r\n  // 元画像を壊さないよう複製してから色補正する\r\n  const data = new Uint8ClampedArray(imageData.data);\r\n  const wb = estimateWhiteBalance(data, hsv);\r\n  applyWhiteBalance(data, wb.gains);\r\n\r\n  const hsvOut = [0, 0, 0];\r\n  const mask = new Uint8Array(rw * rh);\r\n  const hueHist = new Float64Array(HUE_BINS);\r\n  const hueCount = new Float64Array(360);\r\n  const counts = { bg: 0, green: 0, yg: 0, yellow: 0, brown: 0, other: 0 };\r\n\r\n  // 背景が「自動」のときは、まず白背景と暗背景それぞれの候補数を数えて多い方を採る\r\n  let mode = bgMode;\r\n  if (mode === 'auto') {\r\n    let whiteN = 0, darkN = 0;\r\n    // 全画素を見る必要はないので4画素おきに数える\r\n    for (let y = ry; y \u003c ry + rh; y += 2) {\r\n      for (let x = rx; x \u003c rx + rw; x += 2) {\r\n        const i = (y * W + x) * 4;\r\n        rgbToHsv(data[i], data[i + 1], data[i + 2], hsvOut);\r\n        if (hsvOut[1] \u003c hsv.bgWhiteS && hsvOut[2] > hsv.bgWhiteV) whiteN++;\r\n        else if (hsvOut[2] \u003c hsv.bgDarkV) darkN++;\r\n      }\r\n    }\r\n    const sampled = Math.ceil(rw / 2) * Math.ceil(rh / 2);\r\n    if (whiteN / sampled > 0.05 && whiteN >= darkN) mode = 'white';\r\n    else if (darkN / sampled > 0.05) mode = 'dark';\r\n    else mode = 'none';\r\n  }\r\n\r\n  for (let y = 0; y \u003c rh; y++) {\r\n    let i = ((ry + y) * W + rx) * 4;\r\n    let m = y * rw;\r\n    for (let x = 0; x \u003c rw; x++, i += 4, m++) {\r\n      const r = data[i], g = data[i + 1], b = data[i + 2];\r\n      rgbToHsv(r, g, b, hsvOut);\r\n      const h = hsvOut[0], s = hsvOut[1], v = hsvOut[2];\r\n\r\n      // --- 背景の除去 ---\r\n      const isWhiteBg = mode === 'white' && s \u003c hsv.bgWhiteS && v > hsv.bgWhiteV;\r\n      const isDarkBg = (mode === 'dark' || mode === 'white') && v \u003c hsv.bgDarkV;\r\n      if (isWhiteBg || isDarkBg) {\r\n        mask[m] = PX_BG;\r\n        counts.bg++;\r\n        continue;\r\n      }\r\n\r\n      // --- 籾の分類 ---\r\n      const cls = classifyPixel(h, s, hsv);\r\n      mask[m] = cls;\r\n      if (cls === PX_GREEN) counts.green++;\r\n      else if (cls === PX_YG) counts.yg++;\r\n      else if (cls === PX_YELLOW) counts.yellow++;\r\n      else if (cls === PX_BROWN) counts.brown++;\r\n      else { counts.other++; continue; }\r\n\r\n      hueHist[Math.min(HUE_BINS - 1, (h / 2) | 0)]++;\r\n      hueCount[Math.min(359, h | 0)]++;\r\n    }\r\n  }\r\n\r\n  const total = rw * rh;\r\n  const foreground = counts.green + counts.yg + counts.yellow + counts.brown;\r\n\r\n  // 緑籾指数：移行帯の黄緑は半分だけ緑として数える\r\n  const greenIndex = foreground > 0 ? (counts.green + counts.yg * 0.5) / foreground : null;\r\n\r\n  const summary = summarizeComposition(counts, foreground);\r\n\r\n  const result = {\r\n    mode: 'panicle',\r\n    bgMode: mode,\r\n    wb: wb,\r\n    counts: counts,\r\n    total: total,\r\n    foreground: foreground,\r\n    foregroundRatio: total > 0 ? foreground / total : 0,\r\n    greenIndex: greenIndex,\r\n    yellowingRatio: summary.yellowingRatio,\r\n    composition: summary.composition,\r\n    greenRatio: foreground > 0 ? counts.green / foreground : null,\r\n    yellowRatio: foreground > 0 ? counts.yellow / foreground : null,\r\n    brownRatio: foreground > 0 ? counts.brown / foreground : null,\r\n    hueMedian: medianFromHist(hueCount, foreground),\r\n    hist: hueHist,\r\n    mask: { data: mask, w: rw, h: rh, x: rx, y: ry },\r\n    warnings: [],\r\n  };\r\n\r\n  collectWarnings(result, hsv);\r\n  return result;\r\n}\r\n\r\n/**\r\n * 前景画素（＝籾とみなした部分）の色の内訳と黄化率を求める。\r\n *\r\n * 黄化率は緑籾指数の裏返しで、両者を足すと必ず100%になる。\r\n * 移行帯の黄緑は緑籾指数と同じく半分だけ黄側に数え、褐変は「黄を通り越した状態」として黄側に含める。\r\n * 褐変が多い場合は刈り遅れか枯れなので、別途 brownRatio として単独でも表示・警告する。\r\n */\r\nfunction summarizeComposition(counts, foreground) {\r\n  if (!foreground) return { composition: null, yellowingRatio: null };\r\n  return {\r\n    composition: {\r\n      green: counts.green / foreground,\r\n      yg: counts.yg / foreground,\r\n      yellow: counts.yellow / foreground,\r\n      brown: counts.brown / foreground,\r\n    },\r\n    yellowingRatio: (counts.yg * 0.5 + counts.yellow + counts.brown) / foreground,\r\n  };\r\n}\r\n\r\n/** 1度きざみのヒストグラムから中央値の色相を求める */\r\nfunction medianFromHist(hist, total) {\r\n  if (!total) return null;\r\n  const half = total / 2;\r\n  let acc = 0;\r\n  for (let h = 0; h \u003c hist.length; h++) {\r\n    acc += hist[h];\r\n    if (acc >= half) return h;\r\n  }\r\n  return null;\r\n}\r\n\r\nfunction collectWarnings(res, hsv) {\r\n  const w = res.warnings;\r\n\r\n  if (res.wb.method === 'gray') {\r\n    w.push({ level: 'warn', text: '白い紙が写っていないため簡易的な色補正になりました。白い紙を背景に敷いて撮り直すと精度が上がります。' });\r\n  } else if (res.wb.method === 'none') {\r\n    w.push({ level: 'alert', text: '色補正ができませんでした。写真が暗すぎるか白飛びしている可能性があります。' });\r\n  }\r\n\r\n  if (res.foregroundRatio \u003c 0.05) {\r\n    w.push({ level: 'alert', text: '籾とみなせる部分がほとんど検出できません。範囲の指定と背景の設定を確認してください。' });\r\n  }\r\n\r\n  const otherRatio = res.total > 0 ? res.counts.other / res.total : 0;\r\n  if (otherRatio > 0.25) {\r\n    w.push({ level: 'warn', text: '色が薄い・想定外の色の部分が多く含まれています（' + fmtPct(otherRatio, 0) + '）。影や写り込みが多いかもしれません。' });\r\n  }\r\n\r\n  if (res.bgMode === 'none') {\r\n    w.push({ level: 'warn', text: '背景を判別できなかったため、範囲内すべてを籾として扱いました。範囲をドラッグで穂だけに絞ると精度が上がります。' });\r\n  }\r\n\r\n  if (res.brownRatio !== null && res.brownRatio > 0.20) {\r\n    w.push({ level: 'alert', text: '褐変した部分が多く見られます（' + fmtPct(res.brownRatio, 0) + '）。刈り遅れ、または枯れ・被害の可能性があります。' });\r\n  }\r\n}\r\n\r\n/** 分類マスクを半透明の色画像に変換する（オーバーレイ描画用） */\r\nfunction maskToImageData(mask, alpha) {\r\n  const out = new ImageData(mask.w, mask.h);\r\n  const px = out.data;\r\n  const a = Math.round(clamp(alpha, 0, 1) * 255);\r\n  for (let m = 0, i = 0; m \u003c mask.data.length; m++, i += 4) {\r\n    const cls = mask.data[m];\r\n    const c = PX_COLORS[cls];\r\n    if (!c) continue; // 背景は透明のまま\r\n    px[i] = c[0];\r\n    px[i + 1] = c[1];\r\n    px[i + 2] = c[2];\r\n    px[i + 3] = a;\r\n  }\r\n  return out;\r\n}\r\n\r\n/* ===== js: analysis/grain-params.js ===== */\r\n// 粒カウント方式の調整値\r\n//\r\n// ★このファイルは自動生成です。直接編集しないでください。★\r\n// 調整は src/kariire/params.py で行い、次を実行して作り直します。\r\n//     .venv\\Scripts\\python.exe tools/export_params.py\r\n//\r\n// Python 側と JS 側で値がずれると、同じ写真から違う答えが出ます。\r\n// tests/test_parity.py が両者の一致を検証します。\r\n\r\nconst GRAIN_PARAMS = {\r\n  WORK_MAX_EDGE: 1600,\r\n  WB_MIN_WHITE_RATIO: 0.02,\r\n  WB_GAIN_MIN: 0.5,\r\n  WB_GAIN_MAX: 2.0,\r\n  WHITE_REF_PCTL: 90.0,\r\n  WHITE_REL_V: 0.8,\r\n  WHITE_ABS_MIN_V: 0.3,\r\n  PAPER_MIN_RATIO: 0.05,\r\n  PAPER_MIN_BRIGHT_PCTL: 60.0,\r\n  PAPER_ERODE_PX: 3,\r\n\r\n  // 紙の白い部分が分断されたとき、どこまでを同じ1枚の紙とみなすか。\r\n  // 最大の成分に対するこの割合、または画像全体に対するこの割合を\r\n  // 超える成分は、まとめて紙として扱う（そのあと凸包で1枚に戻す）。\r\n  //\r\n  // 穂が画面の端から端まで伸びると、紙が2つに割れる。実測では\r\n  // 738,714 と 730,992 のほぼ同じ2つになり、片方だけを使ったために\r\n  // 穂の2割しか数えられなかった。\r\n  // 小さすぎるものを拾うと机の上の白い物まで巻き込むので、下限を設ける。\r\n  PAPER_PIECE_MIN_RATIO: 0.2,\r\n  PAPER_PIECE_MIN_AREA: 0.03,\r\n  // 紙の上でこの彩度以上なら「色のついたもの＝籾か茎」とみなす。\r\n  //\r\n  // 【この値は妥当。11通りの代案を試して、どれも及ばなかった 2026-08-11】\r\n  // 籾らしい画素（Lab彩度18以上・色相12〜165°・紙より暗い）のうち、\r\n  // この前景がどれだけ拾えているかを8枚で測ると 96〜99% だった\r\n  // （直射日光の 100222 でも 97.4%）。取りこぼしはしていない。\r\n  //\r\n  // b*（青−黄の軸）や Lab の彩度を使う案は、目視の実寸に対する\r\n  // 半径推定の誤差がいずれも悪化した（平均10% → 12〜164%）。\r\n  // 紙のわずかな色づきまで拾ってしまうため。\r\n  //\r\n  // 【残っている問題 — 未解決】\r\n  // 直射日光下では、紙に落ちた影が青空の色を拾って\r\n  // 彩度0.554・色相200〜218°・明度0.369まで色づき、この前景をすり抜ける。\r\n  // 100222 では前景132k画素のうち44.8k（34%）が籾でない色だった。\r\n  // 影は SHADOW_MAX_V=0.22 も超えるので明度でも落とせない。\r\n  //\r\n  // 拾ってしまった影は、粒として数える段階で grainColorImplausible が\r\n  // 母数から外す。ただし距離変換には混ざるので、半径推定への影響は残る。\r\n  // 前景の段階で色相ゲートを掛ける案は試したが、半径推定の誤差が\r\n  // 平均10%→12%・最大20%→30%と悪化したため採用していない。\r\n  //\r\n  // 撮影手順が明るい日陰を指示しているのは、この影を作らないためでもある。\r\n  GRAIN_MIN_SAT: 0.2,\r\n  SHADOW_MAX_V: 0.22,\r\n  MIN_BLOB_AREA_RATIO: 0.08,\r\n  // 粒半径の推定に使う、前景の距離変換の分位点。\r\n  //\r\n  // 【95 から 75 へ — 実測にもとづく変更 2026-08-11】\r\n  // もとは「山（局所最大）の中央値」を主に使い、95%点は山が取れないときの\r\n  // 退避先だった。山の中央値は2穂が重なって前景が太い塊になると崩れる\r\n  // （真値16pxの写真で5.1px）ため、分位点を主にした。\r\n  // 95%点だと塊の中心だけを見て過大になる（かつて18.2px）。\r\n  // 目視の実寸8枚に対する採点では 75%点が最良で、平均誤差10%・最大20%。\r\n  // 詳しくは grain-segment.js の grainEstimateRadius の説明を参照。\r\n  GRAIN_RADIUS_PCTL: 75.0,\r\n  // 距離変換から推定した半径にかける補正係数。\r\n  //\r\n  // 【0.80 から 1.00 へ — 実測にもとづく変更 2026-08-11】\r\n  // もとは「密着した粒が融合する分だけ半径が2割ほど過大に出る」として\r\n  // 0.80 をかけていた。その根拠は推定 8.0/12.0/11.1 に対し実寸 6.8/9.5/9.0\r\n  // というものだったが、この「実寸」は分割後の領域から測ったもので、\r\n  // 過分割していれば当然小さく出る。循環した根拠になっていた。\r\n  //\r\n  // 画像から直接測り直した。20px の物差しを重ねた4倍拡大で籾の短径を読むと、\r\n  // 080805 の半径はおよそ 13px。分割が正しく効いている同写真の粒面積の\r\n  // 中央値 1078px から楕円（長短径比2.5）として逆算しても 11.7px になる。\r\n  // 補正前の推定値は 12.0 でこれに一致し、0.80 をかけた 9.6 は2割小さい。\r\n  //\r\n  // 分割境界を重ねて目視でも確認した。0.80 では 080805・100246 の両方で\r\n  // 1粒が2〜4片に切られ、1.00 では1粒が1領域になる。\r\n  RADIUS_CORRECTION: 1.0,\r\n  THIN_RADIUS_RATIO: 0.38,\r\n  SEED_SMOOTH_RATIO: 0.28,\r\n  SEED_WINDOW_RATIO: 1.3,\r\n  SEED_MIN_WINDOW: 5,\r\n  SEED_MIN_DIST_RATIO: 0.5,\r\n  GRAIN_AREA_MIN_RATIO: 0.25,\r\n  GRAIN_AREA_MAX_RATIO: 3.0,\r\n  GRAIN_MAX_ELONGATION: 5.0,\r\n  GRAIN_MIN_FILL: 0.45,\r\n  GRAIN_MIN_MINOR_RATIO: 1.2,\r\n  STAGE_MARGIN_EARLY: 8.0,\r\n  STAGE_MARGIN_LATE: 4.0,\r\n  MIN_GRAIN_COUNT: 60,\r\n  MAX_EXCLUDE_RATIO: 0.25,\r\n\r\n  // --- 判定を信用してよいかの確認（2026-08-11 追加） ---\r\n  //\r\n  // 【なぜ必要か — 実測にもとづく】\r\n  // 260810 の写真で、2穂の写真から 1090 粒が検出され、葉が丸ごと数百粒として\r\n  // 数えられ、色相 217°（青）の領域まで籾として通っていた。それでも警告は\r\n  // 1つも出なかった。当時の確認は「60粒未満なら警告」という下限だけで、\r\n  // 上限も、明らかにおかしい半径も、籾でない色も見ていなかったため。\r\n  // 誤った数値を無警告で出すのが、この道具でいちばん危険な壊れ方になる。\r\n\r\n  // 1穂の籾数としてありえない上限。品種により1穂は60〜200粒程度で、\r\n  // 撮影手順も「1穂ずつ」としている。2穂分を超えたら撮り方か分割を疑う。\r\n  MAX_GRAIN_COUNT: 300,\r\n\r\n  // 推定した粒半径が作業解像度の長辺に対してこの比を下回ったら警告する。\r\n  // WORK_MAX_EDGE=1600 のとき 6.2px。\r\n  //\r\n  // ★暫定値★ 手元の写真8枚で決めた値で、統計的な裏付けは無い。\r\n  // RADIUS_CORRECTION=1.0 での推定半径は、目視の実寸と合う5枚が 8.0〜12.0px、\r\n  // 分割が壊れた2枚が 5.0〜5.1px だった。その間を取っている。\r\n  //\r\n  // 【なぜ「推定半径と実測面積の食い違い」で検出しないのか】\r\n  // それを試したが分離できなかった。分割が壊れると、半径が小さくなる →\r\n  // 種の窓も小さくなる → 切り出される粒も小さくなる、と系全体が一貫して\r\n  // 縮むため、内部の整合性は保たれたまま答えだけが間違う\r\n  // （100214 は実測/推定＝1.06 と整合して見えるが、半径は5.0で実寸7.5）。\r\n  // 自己整合性ではなく、解像度に対する絶対値で見るしかない。\r\n  MIN_GRAIN_RADIUS_WARN_RATIO: 1 / 260,\r\n\r\n  // 1粒の画素のうち、籾でありうる色（緑・黄緑・黄・褐変）が占める割合。\r\n  // これを下回る粒は「籾ではない」とみなして母数から外す。\r\n  //\r\n  // 実測では、この値の分布は 0.0 と 1.0 の二極に分かれていて中間がほとんど無い\r\n  // （8枚すべてで \u003c0.3 と \u003c0.7 の該当率が同じ）。しきい値の取り方は結果を\r\n  // 左右しないので、真ん中を取っている。良好な写真では該当ゼロ。\r\n  GRAIN_MIN_CLASSIFIED: 0.5,\r\n\r\n  // 籾でない色の粒がこの割合を超えたら、写り込みを疑って警告する。\r\n  MAX_IMPLAUSIBLE_RATIO: 0.1,\r\n\r\n  // 粒として切り出した範囲に、籾でありえない色相（青い影）がこの割合を\r\n  // 超えて混ざっていたら警告する。直射日光で撮ったことの検出になる。\r\n  //\r\n  // ★暫定値★ 手元の写真8枚で決めた値。ただし分離はきれいだった。\r\n  //   明るい日陰の4枚 … 0.0%\r\n  //   直射日光の4枚   … 3.0% / 11.2% / 21.0% / 27.4%\r\n  // 影は前景に入って粒の輪郭と半径推定を内側から狂わせるので、\r\n  // 粒数が一見それらしくても数値は当てにならない。\r\n  SHADOW_WARN_RATIO: 0.10,\r\n  AUTO_GREEN_FULL: 0.55,\r\n\r\n  // 1粒の中の緑がこの割合以上なら帯緑（＝黄化に数えない）。\r\n  //\r\n  // 【0.10 から 0.25 へ — 手数えとの答え合わせにもとづく変更 2026-08-12】\r\n  // 0.10 に根拠は無く、前任の実装から引き継いだ値だった。\r\n  // 260812 の穂3本を、写真を撮ってから籾を外して手で数え、突き合わせた。\r\n  //\r\n  //   写真   手数え     0.10のとき   0.25のとき\r\n  //   1      58.6%      46.2%        60.0%   ← 粒数 145対143 で最も信頼できる\r\n  //   2      50.8%      49.5%        60.0%   ← 籾の3割が穂の陰で写っていない\r\n  //   3      74.5%      51.7%        73.2%\r\n  //\r\n  // 0.10 では平均12.2ポイント低く出ていた。0.25 にすると、粒数が合っている\r\n  // 写真1と写真3で誤差 +1.4 / -1.3 ポイントに収まる。\r\n  //\r\n  // 写真2だけ 9ポイント高く出るが、この写真は籾が穂の陰に隠れて\r\n  // 130粒中91粒しか写っておらず、写っている籾のほうが黄化が進んでいた\r\n  // （隠れるのは穂の内側の未熟な籾）。写真そのものが条件を外している。\r\n  //\r\n  // ★この値は「較正に使った」ものであって「検証済み」ではない★\r\n  // 上の3本は値を決めるのに使ってしまったので、精度の裏付けには使えない。\r\n  // 別の穂で、できれば黄化率80〜90%のもので、改めて答え合わせが要る。\r\n  // 判断が変わるのは85%付近だけで、上の3本は50〜75%とその手前にある。\r\n  AUTO_GREENBELT_MIN: 0.25,\r\n\r\n  AUTO_BROWN_MIN: 0.45,\r\n  GRAIN_ASPECT_GUESS: 2.5,\r\n  MIN_GRAIN_RADIUS_PX: 2.0,\r\n  PAPER_BOX_RATIO: 6.0,\r\n  PAPER_LOCAL_MIN_PX: 50,\r\n  ELONGATION_CAP: 20.0,\r\n  BROWN_WARN_RATIO: 0.2,\r\n  WB_CLIP_VALUE: 250,\r\n};\r\n\r\n// 色相などのしきい値（既存HTMLの DEFAULT_HSV と同じ値）\r\nconst GRAIN_HSV = {\r\n  greenMin: 75.0,\r\n  greenMax: 165.0,\r\n  ygMin: 47.0,\r\n  ygMax: 75.0,\r\n  yellowMin: 30.0,\r\n  yellowMax: 47.0,\r\n  brownMin: 12.0,\r\n  brownMax: 30.0,\r\n  bgWhiteS: 0.15,\r\n  bgWhiteV: 0.8,\r\n  bgDarkV: 0.2,\r\n  minSat: 0.12,\r\n};\r\n\r\n// 特徴量の並び。model.coef の列の順序と対応する。\r\nconst GRAIN_FEATURE_NAMES = [\r\n  'L_mean', 'L_p25', 'L_p75', 'a_mean',\r\n  'a_p25', 'a_p75', 'b_mean', 'b_p25',\r\n  'b_p75', 'chroma_mean', 'hue_mean', 'hue_p25',\r\n  'hue_p75', 'sat_mean', 'val_mean', 'frac_green',\r\n  'frac_yg', 'frac_yellow', 'frac_brown', 'b_std',\r\n  'a_std', 'L_std', 'L_minus_paper', 'L_ratio_paper',\r\n  'area_rel', 'elongation', 'fill',\r\n];\r\n\r\n// 籾のラベル\r\nconst GRAIN_LABELS = ['yellow', 'greenbelt', 'green', 'brown', 'exclude'];\r\nconst GRAIN_CLASS_LABELS = ['yellow', 'greenbelt', 'green', 'brown'];\r\nconst GRAIN_LABEL_JA = {\r\n  yellow: '黄化',\r\n  greenbelt: '帯緑',\r\n  green: '緑',\r\n  brown: '褐変',\r\n  exclude: '除外',\r\n};\r\nconst GRAIN_LABEL_COLORS = {\r\n  yellow: [232, 178, 32],\r\n  greenbelt: [168, 192, 40],\r\n  green: [46, 160, 60],\r\n  brown: [150, 92, 40],\r\n  exclude: [120, 120, 120],\r\n};\r\n\r\n/* ===== js: analysis/grain-imgproc.js ===== */\r\n// 粒カウント方式で使う画像処理の土台\r\n//\r\n// Python 側（src/kariire/）と同じ結果を出す必要がある。\r\n// Python は scipy.ndimage の関数を使っているので、ここでは\r\n// その挙動（境界の扱い・カーネルの作り方）まで合わせて実装する。\r\n// ずれていないかは tests/test_parity.py が検証する。\r\n//\r\n// ここに置くのは、どれも「画素の並びをどう扱うか」だけの汎用処理で、\r\n// 稲や籾の話は一切入れない。籾の話は grain-segment.js 以降に置く。\r\n\r\n/**\r\n * 8近傍の連結成分ラベリング。\r\n * scipy.ndimage.label(mask, structure=ones((3,3))) に対応する。\r\n *\r\n * 走査順（上から下、左から右）で見つけた順に1から番号を振る。\r\n * Python 側も同じ順序で番号を振るので、ラベル番号まで一致する。\r\n *\r\n * @param {Uint8Array} mask 0/1 の配列（長さ w*h）\r\n * @returns {{labels: Int32Array, count: number}}\r\n */\r\nfunction labelComponents(mask, w, h) {\r\n  const labels = new Int32Array(w * h);\r\n  const stack = new Int32Array(w * h);\r\n  let count = 0;\r\n\r\n  for (let start = 0; start \u003c mask.length; start++) {\r\n    if (!mask[start] || labels[start] !== 0) continue;\r\n\r\n    count++;\r\n    let sp = 0;\r\n    stack[sp++] = start;\r\n    labels[start] = count;\r\n\r\n    // 再帰だと粒の数だけ深くなってスタックが溢れるので、自前の配列で回す\r\n    while (sp > 0) {\r\n      const p = stack[--sp];\r\n      const py = (p / w) | 0;\r\n      const px = p - py * w;\r\n\r\n      for (let dy = -1; dy \u003c= 1; dy++) {\r\n        const ny = py + dy;\r\n        if (ny \u003c 0 || ny >= h) continue;\r\n        for (let dx = -1; dx \u003c= 1; dx++) {\r\n          const nx = px + dx;\r\n          if (nx \u003c 0 || nx >= w) continue;\r\n          const q = ny * w + nx;\r\n          if (mask[q] && labels[q] === 0) {\r\n            labels[q] = count;\r\n            stack[sp++] = q;\r\n          }\r\n        }\r\n      }\r\n    }\r\n  }\r\n  return { labels: labels, count: count };\r\n}\r\n\r\n/** 各ラベルの画素数を数える。戻り値の 0 番は背景。 */\r\nfunction labelSizes(labels, count) {\r\n  const sizes = new Int32Array(count + 1);\r\n  for (let i = 0; i \u003c labels.length; i++) sizes[labels[i]]++;\r\n  return sizes;\r\n}\r\n\r\n// 距離変換で「背景が無い」ことを表す値。\r\n// Infinity を入れると差の計算で NaN が出るので、十分大きい有限値を使う。\r\nconst EDT_FAR = 1e20;\r\n\r\n/**\r\n * 1次元の距離変換（Felzenszwalb & Huttenlocher の下側包絡線法）。\r\n * 各点について「f(v) + (q-v)^2 を最小にする v」を求める。\r\n *\r\n * @param {Float64Array} f 入力（長さ n）\r\n * @param {Float64Array} d 出力の最小値\r\n * @param {Int32Array} arg 出力の最小を与えた位置\r\n */\r\nfunction edt1d(f, n, d, arg, v, z) {\r\n  let k = 0;\r\n  v[0] = 0;\r\n  z[0] = -EDT_FAR;\r\n  z[1] = EDT_FAR;\r\n\r\n  for (let q = 1; q \u003c n; q++) {\r\n    let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\r\n    while (s \u003c= z[k]) {\r\n      k--;\r\n      s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\r\n    }\r\n    k++;\r\n    v[k] = q;\r\n    z[k] = s;\r\n    z[k + 1] = EDT_FAR;\r\n  }\r\n\r\n  k = 0;\r\n  for (let q = 0; q \u003c n; q++) {\r\n    while (z[k + 1] \u003c q) k++;\r\n    const dv = q - v[k];\r\n    d[q] = dv * dv + f[v[k]];\r\n    arg[q] = v[k];\r\n  }\r\n}\r\n\r\n/**\r\n * 正確なユークリッド距離変換。\r\n * scipy.ndimage.distance_transform_edt に対応する。\r\n *\r\n * mask が 1 の画素について、最も近い 0 の画素までの距離を返す。\r\n * 近似ではなく厳密解なので、Python と同じ値になる。\r\n *\r\n * @param {Uint8Array} mask 0/1 の配列\r\n * @param {boolean} withIndices 最も近い 0 画素の位置も返すか\r\n * @returns {{dist: Float64Array, nearest: Int32Array|null}}\r\n */\r\nfunction distanceTransform(mask, w, h, withIndices) {\r\n  const n = w * h;\r\n  const sq = new Float64Array(n);      // 二乗距離\r\n  const argY = new Int32Array(n);      // 縦方向で最小を与えた y\r\n\r\n  const maxLen = Math.max(w, h);\r\n  const f = new Float64Array(maxLen);\r\n  const d = new Float64Array(maxLen);\r\n  const arg = new Int32Array(maxLen);\r\n  const v = new Int32Array(maxLen);\r\n  const z = new Float64Array(maxLen + 1);\r\n\r\n  // --- 縦方向 ---\r\n  for (let x = 0; x \u003c w; x++) {\r\n    for (let y = 0; y \u003c h; y++) f[y] = mask[y * w + x] ? EDT_FAR : 0;\r\n    edt1d(f, h, d, arg, v, z);\r\n    for (let y = 0; y \u003c h; y++) {\r\n      sq[y * w + x] = d[y];\r\n      argY[y * w + x] = arg[y];\r\n    }\r\n  }\r\n\r\n  // --- 横方向 ---\r\n  const nearest = withIndices ? new Int32Array(n) : null;\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) f[x] = sq[row + x];\r\n    edt1d(f, w, d, arg, v, z);\r\n    for (let x = 0; x \u003c w; x++) {\r\n      sq[row + x] = d[x];\r\n      if (nearest) {\r\n        // 横方向で選ばれた列 arg[x] の、縦方向で選ばれた行を引き直す\r\n        const sx = arg[x];\r\n        nearest[row + x] = argY[row + sx] * w + sx;\r\n      }\r\n    }\r\n  }\r\n\r\n  const dist = new Float64Array(n);\r\n  for (let i = 0; i \u003c n; i++) dist[i] = Math.sqrt(sq[i]);\r\n  return { dist: dist, nearest: nearest };\r\n}\r\n\r\n/**\r\n * 境界の折り返し（scipy の mode='reflect'）。\r\n * 端の画素を含めて折り返す: (d c b a | a b c d | d c b a)\r\n */\r\nfunction reflectIndex(i, n) {\r\n  if (n === 1) return 0;\r\n  while (i \u003c 0 || i >= n) {\r\n    if (i \u003c 0) i = -i - 1;\r\n    if (i >= n) i = 2 * n - i - 1;\r\n  }\r\n  return i;\r\n}\r\n\r\n/**\r\n * ガウス平滑化。scipy.ndimage.gaussian_filter（truncate=4.0, mode='reflect'）に対応。\r\n * 縦横に分けてかける（2次元のガウスは1次元の掛け合わせで表せるため）。\r\n */\r\nfunction gaussianBlur(src, w, h, sigma) {\r\n  const lw = Math.floor(4.0 * sigma + 0.5);\r\n  const size = 2 * lw + 1;\r\n  const kernel = new Float64Array(size);\r\n  let sum = 0;\r\n  for (let i = 0; i \u003c size; i++) {\r\n    const x = i - lw;\r\n    kernel[i] = Math.exp(-0.5 * (x * x) / (sigma * sigma));\r\n    sum += kernel[i];\r\n  }\r\n  for (let i = 0; i \u003c size; i++) kernel[i] /= sum;\r\n\r\n  const tmp = new Float64Array(w * h);\r\n  const out = new Float64Array(w * h);\r\n\r\n  // 横方向\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      let acc = 0;\r\n      for (let i = 0; i \u003c size; i++) {\r\n        acc += kernel[i] * src[row + reflectIndex(x + i - lw, w)];\r\n      }\r\n      tmp[row + x] = acc;\r\n    }\r\n  }\r\n  // 縦方向\r\n  for (let x = 0; x \u003c w; x++) {\r\n    for (let y = 0; y \u003c h; y++) {\r\n      let acc = 0;\r\n      for (let i = 0; i \u003c size; i++) {\r\n        acc += kernel[i] * tmp[reflectIndex(y + i - lw, h) * w + x];\r\n      }\r\n      out[y * w + x] = acc;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * 最大値フィルタ。scipy.ndimage.maximum_filter（正方形・mode='reflect'）に対応。\r\n * size は奇数であること（中心を持たせるため）。\r\n */\r\nfunction maximumFilter(src, w, h, size) {\r\n  const r = (size - 1) >> 1;\r\n  const tmp = new Float64Array(w * h);\r\n  const out = new Float64Array(w * h);\r\n\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      let m = -Infinity;\r\n      for (let i = -r; i \u003c= r; i++) {\r\n        const v = src[row + reflectIndex(x + i, w)];\r\n        if (v > m) m = v;\r\n      }\r\n      tmp[row + x] = m;\r\n    }\r\n  }\r\n  for (let x = 0; x \u003c w; x++) {\r\n    for (let y = 0; y \u003c h; y++) {\r\n      let m = -Infinity;\r\n      for (let i = -r; i \u003c= r; i++) {\r\n        const v = tmp[reflectIndex(y + i, h) * w + x];\r\n        if (v > m) m = v;\r\n      }\r\n      out[y * w + x] = m;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * パーセンタイル。numpy.percentile の既定（線形補間）に合わせる。\r\n * @param {number[]|Float64Array} values 並べ替えてよい配列\r\n */\r\nfunction percentile(values, q) {\r\n  const a = Float64Array.from(values);\r\n  a.sort();\r\n  const n = a.length;\r\n  if (n === 0) return NaN;\r\n  if (n === 1) return a[0];\r\n\r\n  const pos = (q / 100) * (n - 1);\r\n  const lo = Math.floor(pos);\r\n  const hi = Math.ceil(pos);\r\n  if (lo === hi) return a[lo];\r\n  return a[lo] + (a[hi] - a[lo]) * (pos - lo);\r\n}\r\n\r\nconst median = (values) => percentile(values, 50);\r\n\r\n/**\r\n * 凸包の頂点を求める（Andrew の monotone chain）。\r\n * 頂点の並ぶ向きは、符号付き面積が正になる側にそろえる。\r\n * @param {Array\u003c[number,number]>} points [x, y] の配列\r\n */\r\nfunction convexHull(points) {\r\n  if (points.length \u003c= 2) return points.slice();\r\n\r\n  const pts = points.slice().sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));\r\n  const cross = (o, a, b) =>\r\n    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);\r\n\r\n  const lower = [];\r\n  for (const p of pts) {\r\n    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) \u003c= 0) {\r\n      lower.pop();\r\n    }\r\n    lower.push(p);\r\n  }\r\n  const upper = [];\r\n  for (let i = pts.length - 1; i >= 0; i--) {\r\n    const p = pts[i];\r\n    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) \u003c= 0) {\r\n      upper.pop();\r\n    }\r\n    upper.push(p);\r\n  }\r\n\r\n  const hull = lower.slice(0, -1).concat(upper.slice(0, -1));\r\n\r\n  // 向きをそろえる。逆だと内外判定の符号が反転して内側が空になる。\r\n  let area2 = 0;\r\n  for (let i = 0; i \u003c hull.length; i++) {\r\n    const [x1, y1] = hull[i];\r\n    const [x2, y2] = hull[(i + 1) % hull.length];\r\n    area2 += x1 * y2 - x2 * y1;\r\n  }\r\n  if (area2 \u003c 0) hull.reverse();\r\n  return hull;\r\n}\r\n\r\n/** 凸包の内側を塗りつぶしたマスクを作る。 */\r\nfunction fillHull(hull, w, h) {\r\n  const mask = new Uint8Array(w * h);\r\n  if (hull.length \u003c 3) {\r\n    mask.fill(1);\r\n    return mask;\r\n  }\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      let inside = true;\r\n      for (let i = 0; i \u003c hull.length; i++) {\r\n        const [x1, y1] = hull[i];\r\n        const [x2, y2] = hull[(i + 1) % hull.length];\r\n        if ((x2 - x1) * (y - y1) - (y2 - y1) * (x - x1) \u003c 0) {\r\n          inside = false;\r\n          break;\r\n        }\r\n      }\r\n      mask[row + x] = inside ? 1 : 0;\r\n    }\r\n  }\r\n  return mask;\r\n}\r\n\r\n/** 面積が min 未満の連結成分を取り除く。 */\r\nfunction dropSmall(mask, w, h, minArea) {\r\n  if (minArea \u003c= 1) return mask;\r\n  const res = labelComponents(mask, w, h);\r\n  const sizes = labelSizes(res.labels, res.count);\r\n  const out = new Uint8Array(mask.length);\r\n  for (let i = 0; i \u003c mask.length; i++) {\r\n    const l = res.labels[i];\r\n    out[i] = l > 0 && sizes[l] >= minArea ? 1 : 0;\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * 偶数丸め（銀行家丸め）。Python の round() と同じ結果になる。\r\n *\r\n * Math.round() は .5 を必ず切り上げるが、Python は .5 のとき偶数側へ丸める。\r\n * 作業解像度を決めるところで両者がずれると、画像の幅が1px変わり、\r\n * 縮小の格子ごと変わって最終的な粒数まで変わってしまう。\r\n */\r\nfunction roundHalfEven(x) {\r\n  const f = Math.floor(x);\r\n  const diff = x - f;\r\n  if (diff > 0.5) return f + 1;\r\n  if (diff \u003c 0.5) return f;\r\n  return f % 2 === 0 ? f : f + 1;\r\n}\r\n\r\n/**\r\n * 1次元の面積平均の重みを作る。\r\n * 出力の j 番目は入力の [j*s, (j+1)*s) を覆う（s = srcN / dstN）。\r\n * @returns {Array\u003c{start:number, w:Float64Array}>}\r\n */\r\nfunction areaWeights(srcN, dstN) {\r\n  const s = srcN / dstN;\r\n  const rows = [];\r\n  for (let j = 0; j \u003c dstN; j++) {\r\n    const lo = j * s;\r\n    const hi = (j + 1) * s;\r\n    const k0 = Math.floor(lo);\r\n    const k1 = Math.min(srcN, Math.ceil(hi));\r\n    const w = new Float64Array(Math.max(0, k1 - k0));\r\n    let total = 0;\r\n    for (let k = k0; k \u003c k1; k++) {\r\n      const overlap = Math.min(hi, k + 1) - Math.max(lo, k);\r\n      const val = overlap > 0 ? overlap : 0;\r\n      w[k - k0] = val;\r\n      total += val;\r\n    }\r\n    if (total > 0) for (let i = 0; i \u003c w.length; i++) w[i] /= total;\r\n    rows.push({ start: k0, w: w });\r\n  }\r\n  return rows;\r\n}\r\n\r\n/**\r\n * 面積平均で縮小する。ブラウザ任せの drawImage は使わない。\r\n *\r\n * 【自前で縮小する理由】\r\n * 縮小の方法はブラウザと Pillow で違う。同じ写真なのに検出粒数が\r\n * 156粒と150粒、籾黄化率が95.5%と94.7%に分かれた。判断の境目が85%である以上、\r\n * 「PCで検証した値」と「このアプリが出す値」がずれるのは困る。\r\n * Python 側（src/kariire/resize.py）と同じ計算をここで行う。\r\n *\r\n * 横 → 縦 の順に掛ける。途中は倍精度のまま持ち、最後に一度だけ丸める。\r\n *\r\n * @param {ImageData} src\r\n * @returns {ImageData}\r\n */\r\nfunction downscaleArea(src, dstW, dstH) {\r\n  const sw = src.width, sh = src.height;\r\n  if (sw === dstW && sh === dstH) {\r\n    const same = new ImageData(dstW, dstH);\r\n    same.data.set(src.data);\r\n    return same;\r\n  }\r\n  // 元画像がすでに手元にあるので、行の読み出しは切り出すだけでよい\r\n  return downscaleAreaRows(\r\n    (y0, y1) => src.data.subarray(y0 * sw * 4, y1 * sw * 4), sw, sh, dstW, dstH);\r\n}\r\n\r\n/** 一度に読み込む元画像の行数。窓（出力1行が必要とする元の行数）より十分大きくとる。 */\r\nconst DOWNSCALE_BAND = 128;\r\n\r\n/**\r\n * 面積平均で縮小する（元画像を帯ごとに読みながら進める版）。\r\n *\r\n * 【なぜ全部を一度に持たないのか — スマホ対策】\r\n * 以前は「横方向の結果」を元画像の高さぶん一度に確保していた。\r\n * 4032×2268 の写真では sh×dstW×3 の倍精度配列で 49MB になり、\r\n * 原寸の ImageData 36.6MB とキャンバス 36.6MB を足すとピークで約125MB。\r\n * スマホのタブが落ちる領域だった。\r\n *\r\n * 縦方向は上から順に進み、出力1行が必要とする元の行は数行しかない。\r\n * だから元画像を帯（128行）ずつ読み、その帯の横方向だけを持てば足りる。\r\n * 計算の順序も丸め方も変えていないので、結果は1バイトも変わらない。\r\n *\r\n * @param {(y0:number, y1:number) => Uint8ClampedArray} readRows\r\n *        元画像の行 [y0, y1) を RGBA で返す。呼ばれる順序は上から下。\r\n */\r\nfunction downscaleAreaRows(readRows, sw, sh, dstW, dstH) {\r\n  const out = new ImageData(dstW, dstH);\r\n  const wx = areaWeights(sw, dstW);\r\n  const wy = areaWeights(sh, dstH);\r\n\r\n  // いま手元にある帯（元画像の行 bandY0 以降 bandN 行ぶんの横方向の結果）\r\n  let bandY0 = -1;\r\n  let bandN = 0;\r\n  const band = new Float64Array(DOWNSCALE_BAND * dstW * 3);\r\n\r\n  /** 出力行 i が必要とする元の行がすべて帯に入るようにする */\r\n  const ensureBand = (need0, need1) => {\r\n    if (bandY0 >= 0 && need0 >= bandY0 && need1 \u003c= bandY0 + bandN) return;\r\n    bandY0 = need0;\r\n    bandN = Math.min(DOWNSCALE_BAND, sh - bandY0);\r\n    const rows = readRows(bandY0, bandY0 + bandN);\r\n    for (let y = 0; y \u003c bandN; y++) {\r\n      const srcRow = y * sw * 4;\r\n      const dstRow = y * dstW * 3;\r\n      for (let j = 0; j \u003c dstW; j++) {\r\n        const { start, w } = wx[j];\r\n        let r = 0, g = 0, b = 0;\r\n        for (let i = 0; i \u003c w.length; i++) {\r\n          const p = srcRow + (start + i) * 4;\r\n          r += rows[p] * w[i];\r\n          g += rows[p + 1] * w[i];\r\n          b += rows[p + 2] * w[i];\r\n        }\r\n        band[dstRow + j * 3] = r;\r\n        band[dstRow + j * 3 + 1] = g;\r\n        band[dstRow + j * 3 + 2] = b;\r\n      }\r\n    }\r\n  };\r\n\r\n  for (let i = 0; i \u003c dstH; i++) {\r\n    const { start, w } = wy[i];\r\n    ensureBand(start, start + w.length);\r\n    for (let j = 0; j \u003c dstW; j++) {\r\n      let r = 0, g = 0, b = 0;\r\n      for (let k = 0; k \u003c w.length; k++) {\r\n        const p = (start + k - bandY0) * dstW * 3 + j * 3;\r\n        r += band[p] * w[k];\r\n        g += band[p + 1] * w[k];\r\n        b += band[p + 2] * w[k];\r\n      }\r\n      const q = (i * dstW + j) * 4;\r\n      // Uint8ClampedArray への代入は偶数丸め＋0〜255への収め。\r\n      // Python 側の np.rint + clip と同じ結果になる。\r\n      out.data[q] = r;\r\n      out.data[q + 1] = g;\r\n      out.data[q + 2] = b;\r\n      out.data[q + 3] = 255;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/** 積分画像（累積和）。任意の矩形の合計を4回の足し引きで取り出せるようにする。 */\r\nfunction integralImage(src, w, h) {\r\n  const iw = w + 1;\r\n  const out = new Float64Array(iw * (h + 1));\r\n  for (let y = 0; y \u003c h; y++) {\r\n    let rowSum = 0;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      rowSum += src[y * w + x];\r\n      out[(y + 1) * iw + (x + 1)] = out[y * iw + (x + 1)] + rowSum;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/** 積分画像から矩形 [x0,x1) x [y0,y1) の合計を取り出す。 */\r\nfunction boxSum(integral, iw, x0, y0, x1, y1) {\r\n  return (\r\n    integral[y1 * iw + x1] -\r\n    integral[y0 * iw + x1] -\r\n    integral[y1 * iw + x0] +\r\n    integral[y0 * iw + x0]\r\n  );\r\n}\r\n\r\n/* ===== js: analysis/grain-segment.js ===== */\r\n// 籾を1粒ずつ切り出す（JS版）\r\n//\r\n// もとは src/kariire/ の colorspace.py / paper.py / segment.py からの移植だったが、\r\n// 2026-08-11 以降このファイルが原本になった。Python 側は追随していないので、\r\n// tests/test_parity.py が通ることを、このファイルの正しさの根拠にしないこと\r\n// （あちらは死んだコピーの export/ を読んでいる）。\r\n//\r\n// 【なぜ学習を使わないのか】\r\n// 撮影条件（白紙の上・真上から）が決まっているので、切り出しは色と形の\r\n// 規則で確実にできる。学習を使うのは「切り出した1粒が黄化しているか」の\r\n// 判定だけ（grain-model.js）。\r\n\r\n/**\r\n * RGBA の画素配列から HSV を作る。\r\n * 既存の rgbToHsv と同じ式。h は 0〜360、s と v は 0〜1。\r\n *\r\n * 【Float64Array を使う理由】\r\n * Python 側と同じ答えを出すため。JS には単精度の演算が無く倍精度で計算されるので、\r\n * Python 側も倍精度にそろえてある。単精度で持つと、彩度がしきい値ちょうど付近の\r\n * 画素が数個入れ替わり、前景マスク → 粒半径 → 種の位置 と波及して\r\n * 最終的な黄化率がずれる（実測で0.86ポイントの食い違いが出た）。\r\n */\r\nfunction grainRgbToHsv(data, n) {\r\n  const hh = new Float64Array(n);\r\n  const ss = new Float64Array(n);\r\n  const vv = new Float64Array(n);\r\n\r\n  for (let i = 0, p = 0; i \u003c n; i++, p += 4) {\r\n    const r = data[p] / 255, g = data[p + 1] / 255, b = data[p + 2] / 255;\r\n    const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);\r\n    const mn = r \u003c g ? (r \u003c b ? r : b) : (g \u003c b ? g : b);\r\n    const d = mx - mn;\r\n\r\n    let h = 0;\r\n    if (d !== 0) {\r\n      if (mx === r) h = 60 * (((g - b) / d) % 6);\r\n      else if (mx === g) h = 60 * ((b - r) / d + 2);\r\n      else h = 60 * ((r - g) / d + 4);\r\n      if (h \u003c 0) h += 360;\r\n    }\r\n    hh[i] = h;\r\n    ss[i] = mx === 0 ? 0 : d / mx;\r\n    vv[i] = mx;\r\n  }\r\n  return { h: hh, s: ss, v: vv };\r\n}\r\n\r\n/**\r\n * RGBA の画素配列から CIE L*a*b* を作る（D65）。\r\n *\r\n * 籾の「黄色さ」は b*（青―黄の軸）に、「緑らしさ」は a*（緑―赤の軸）に\r\n * ほぼ一直線で対応する。色相の角度より扱いやすいので分類に使う。\r\n */\r\nfunction grainRgbToLab(data, n) {\r\n  // Python 側と同じ答えにするため倍精度で持つ（grainRgbToHsv の説明を参照）\r\n  const LL = new Float64Array(n);\r\n  const AA = new Float64Array(n);\r\n  const BB = new Float64Array(n);\r\n\r\n  const eps = 216 / 24389;\r\n  const kappa = 24389 / 27;\r\n  const finv = (t) => (t > eps ? Math.cbrt(t) : (kappa * t + 16) / 116);\r\n  // sRGB のガンマを外す対応表。画素ごとに pow を呼ぶと遅いため先に作る。\r\n  const lin = new Float64Array(256);\r\n  for (let i = 0; i \u003c 256; i++) {\r\n    const c = i / 255;\r\n    lin[i] = c \u003c= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);\r\n  }\r\n\r\n  for (let i = 0, p = 0; i \u003c n; i++, p += 4) {\r\n    const r = lin[data[p]], g = lin[data[p + 1]], b = lin[data[p + 2]];\r\n\r\n    const x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;\r\n    const y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;\r\n    const z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883;\r\n\r\n    const fx = finv(x), fy = finv(y), fz = finv(z);\r\n    LL[i] = 116 * fy - 16;\r\n    AA[i] = 500 * (fx - fy);\r\n    BB[i] = 200 * (fy - fz);\r\n  }\r\n  return { L: LL, a: AA, b: BB };\r\n}\r\n\r\n/**\r\n * 白紙とみなせる画素のマスク。\r\n *\r\n * 【明度の絶対値で判定しない理由】\r\n * 実際の調査写真は露出が低く、白紙でも明度が0.6程度までしか上がらなかった。\r\n * 既存HTMLの「明度0.80以上が白」では白紙を1画素も拾えず、\r\n * 精度の落ちるグレーワールド補正に退避していた。\r\n * そこで「色が付いていない画素のうち明るい層」を紙とみなす相対判定にする。\r\n */\r\nfunction grainWhiteMask(s, v, n) {\r\n  const mask = new Uint8Array(n);\r\n\r\n  const lowsat = [];\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (s[i] \u003c GRAIN_HSV.bgWhiteS) lowsat.push(v[i]);\r\n  }\r\n  if (lowsat.length === 0) return { mask: mask, threshold: 1.0 };\r\n\r\n  const vRef = percentile(lowsat, GRAIN_PARAMS.WHITE_REF_PCTL);\r\n  const vThr = Math.max(GRAIN_PARAMS.WHITE_ABS_MIN_V, vRef * GRAIN_PARAMS.WHITE_REL_V);\r\n\r\n  for (let i = 0; i \u003c n; i++) {\r\n    mask[i] = s[i] \u003c GRAIN_HSV.bgWhiteS && v[i] >= vThr ? 1 : 0;\r\n  }\r\n  return { mask: mask, threshold: vThr };\r\n}\r\n\r\n/** 白紙を基準にしたホワイトバランスの推定。既存の estimateWhiteBalance と同じ考え方。 */\r\nfunction grainEstimateWB(data, s, v, n) {\r\n  const white = grainWhiteMask(s, v, n).mask;\r\n\r\n  let wr = 0, wg = 0, wb = 0, wc = 0;\r\n  let ar = 0, ag = 0, ab = 0, ac = 0;\r\n\r\n  for (let i = 0, p = 0; i \u003c n; i++, p += 4) {\r\n    const r = data[p], g = data[p + 1], b = data[p + 2];\r\n    // 白飛びした画素は元の色が失われているので基準に使わない\r\n    if (r >= GRAIN_PARAMS.WB_CLIP_VALUE || g >= GRAIN_PARAMS.WB_CLIP_VALUE || b >= GRAIN_PARAMS.WB_CLIP_VALUE) continue;\r\n    ar += r; ag += g; ab += b; ac++;\r\n    if (white[i]) { wr += r; wg += g; wb += b; wc++; }\r\n  }\r\n\r\n  const whiteRatio = n > 0 ? wc / n : 0;\r\n\r\n  let mr, mg, mb, method;\r\n  if (whiteRatio >= GRAIN_PARAMS.WB_MIN_WHITE_RATIO) {\r\n    mr = wr / wc; mg = wg / wc; mb = wb / wc;\r\n    method = 'white';\r\n  } else if (ac > 0) {\r\n    mr = ar / ac; mg = ag / ac; mb = ab / ac;\r\n    method = 'gray';\r\n  } else {\r\n    return { gains: [1, 1, 1], method: 'none', whiteRatio: whiteRatio };\r\n  }\r\n\r\n  const gray = (mr + mg + mb) / 3;\r\n  const clamp01 = (x) =>\r\n    Math.min(GRAIN_PARAMS.WB_GAIN_MAX, Math.max(GRAIN_PARAMS.WB_GAIN_MIN, x));\r\n  const gains = [\r\n    mr > 1 ? clamp01(gray / mr) : 1,\r\n    mg > 1 ? clamp01(gray / mg) : 1,\r\n    mb > 1 ? clamp01(gray / mb) : 1,\r\n  ];\r\n  return { gains: gains, method: method, whiteRatio: whiteRatio };\r\n}\r\n\r\n/**\r\n * ホワイトバランスを適用した新しい画素配列を返す。\r\n * Uint8ClampedArray への代入は「四捨五入（偶数丸め）してから0〜255に収める」\r\n * 仕様で、Python 側の np.rint + clip と一致する。\r\n */\r\nfunction grainApplyWB(data, gains) {\r\n  const out = new Uint8ClampedArray(data.length);\r\n  if (gains[0] === 1 && gains[1] === 1 && gains[2] === 1) {\r\n    out.set(data);\r\n    return out;\r\n  }\r\n  const lut = [new Uint8ClampedArray(256), new Uint8ClampedArray(256), new Uint8ClampedArray(256)];\r\n  for (let c = 0; c \u003c 3; c++) {\r\n    for (let i = 0; i \u003c 256; i++) lut[c][i] = i * gains[c];\r\n  }\r\n  for (let p = 0; p \u003c data.length; p += 4) {\r\n    out[p] = lut[0][data[p]];\r\n    out[p + 1] = lut[1][data[p + 1]];\r\n    out[p + 2] = lut[2][data[p + 2]];\r\n    out[p + 3] = data[p + 3];\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * 白紙領域を検出する。見つからなければ画像全体を対象にする。\r\n *\r\n * 【穴埋めではなく凸包を使う理由】\r\n * 穂の茎はフレームの外まで伸びるため、籾の塊が画像の縁とつながり、\r\n * 「穴」として認識されない。穴埋めでは紙の内側を復元できず、\r\n * 紙マスクと籾が排他になって前景が1画素も残らなかった。\r\n * 紙は矩形（凸）なので、白い部分の凸包を取れば正しく囲める。\r\n */\r\nfunction grainDetectPaper(s, v, w, h) {\r\n  const n = w * h;\r\n  const white = grainWhiteMask(s, v, n).mask;\r\n\r\n  let wc = 0;\r\n  for (let i = 0; i \u003c n; i++) wc += white[i];\r\n  const whiteRatio = wc / n;\r\n\r\n  const all = new Uint8Array(n);\r\n  all.fill(1);\r\n\r\n  if (whiteRatio \u003c GRAIN_PARAMS.PAPER_MIN_RATIO) {\r\n    return { mask: all, found: false, whiteRatio: whiteRatio };\r\n  }\r\n\r\n  // 暗幕など「暗い無彩色の背景」を紙と取り違えていないか確認する。\r\n  // 比較相手は画像全体ではなく紙以外にすること。紙が画面の大半を占めると\r\n  // 画像全体の分位点そのものが紙の明るさになり、正しい写真まで弾いてしまう。\r\n  let sumWhite = 0;\r\n  const outsideV = [];\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (white[i]) sumWhite += v[i];\r\n    else outsideV.push(v[i]);\r\n  }\r\n  if (outsideV.length > 0) {\r\n    const meanWhite = sumWhite / wc;\r\n    if (meanWhite \u003c= percentile(outsideV, GRAIN_PARAMS.PAPER_MIN_BRIGHT_PCTL)) {\r\n      return { mask: all, found: false, whiteRatio: whiteRatio };\r\n    }\r\n  }\r\n\r\n  // 紙とみなす連結成分を選ぶ。\r\n  //\r\n  // 【最大の1つだけにしない理由 — 実際に起きた不具合】\r\n  // 紙は1枚でも、その上に載せたものが白い部分を分断する。\r\n  // 穂が画面の上端から下端まで伸びると、紙は左右2つの成分に割れる。\r\n  // 最大の1つだけを紙とみなすと、穂がある側がまるごと解析範囲から外れ、\r\n  // 穂の2割しか数えられなくなる（実測：画像の90%が白なのに、\r\n  // 使われたのはその半分。面積 738,714 と 730,992 のほぼ同じ2つに割れていた）。\r\n  //\r\n  // 大きい成分をまとめて拾い、そのあと凸包で1枚に戻す。\r\n  // 机の上の小さな白い物を巻き込まないよう、小さすぎる成分は捨てる。\r\n  const res = labelComponents(white, w, h);\r\n  if (res.count === 0) return { mask: all, found: false, whiteRatio: whiteRatio };\r\n  const sizes = labelSizes(res.labels, res.count);\r\n  let largest = 1;\r\n  for (let l = 1; l \u003c= res.count; l++) if (sizes[l] > sizes[largest]) largest = l;\r\n\r\n  const minPiece = Math.max(\r\n    sizes[largest] * GRAIN_PARAMS.PAPER_PIECE_MIN_RATIO,\r\n    n * GRAIN_PARAMS.PAPER_PIECE_MIN_AREA,\r\n  );\r\n  const isPaper = new Uint8Array(res.count + 1);\r\n  for (let l = 1; l \u003c= res.count; l++) isPaper[l] = sizes[l] >= minPiece ? 1 : 0;\r\n  isPaper[largest] = 1;   // 最大の1つは必ず含める\r\n\r\n  const comp = new Uint8Array(n);\r\n  for (let i = 0; i \u003c n; i++) comp[i] = isPaper[res.labels[i]] ? 1 : 0;\r\n\r\n  // 凸包の頂点候補は「各行・各列の両端」に必ず含まれる。全画素を渡すより速い。\r\n  const pts = [];\r\n  for (let y = 0; y \u003c h; y++) {\r\n    let first = -1, last = -1;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      if (comp[y * w + x]) { if (first \u003c 0) first = x; last = x; }\r\n    }\r\n    if (first >= 0) { pts.push([first, y]); pts.push([last, y]); }\r\n  }\r\n  for (let x = 0; x \u003c w; x++) {\r\n    let first = -1, last = -1;\r\n    for (let y = 0; y \u003c h; y++) {\r\n      if (comp[y * w + x]) { if (first \u003c 0) first = y; last = y; }\r\n    }\r\n    if (first >= 0) { pts.push([x, first]); pts.push([x, last]); }\r\n  }\r\n\r\n  let mask = fillHull(convexHull(pts), w, h);\r\n\r\n  // 紙の縁は色がにじむので内側に縮める\r\n  if (GRAIN_PARAMS.PAPER_ERODE_PX > 0) {\r\n    const dt = distanceTransform(mask, w, h, false);\r\n    const eroded = new Uint8Array(n);\r\n    for (let i = 0; i \u003c n; i++) {\r\n      eroded[i] = dt.dist[i] >= GRAIN_PARAMS.PAPER_ERODE_PX ? 1 : 0;\r\n    }\r\n    mask = eroded;\r\n  }\r\n  return { mask: mask, found: true, whiteRatio: whiteRatio };\r\n}\r\n\r\n/**\r\n * 粒の半径を推定する。前景の距離変換の分位点を採る。\r\n *\r\n * 【「距離変換の局所最大の中央値」から変えた理由 — 実測 2026-08-11】\r\n * 以前は「局所最大は接触していても粒ごとに1つずつ立つ」という考えで、\r\n * 山の中央値を採っていた。この前提は前景が籾1〜2個ぶんの太さの鎖である\r\n * 間しか成り立たない。2穂が重なって太い塊になると、境界ぎわに小さな山が\r\n * 大量に立ち、その数が粒中心の山を圧倒して中央値を引き下げる。\r\n * 実測では真値16pxの写真で5.1pxと3分の1になり、1粒が5〜10片に割れていた。\r\n *\r\n * 目視で測った8枚の実寸を正解として、13通りの推定方式を採点した結果:\r\n *\r\n *   方式                   平均誤差   最大誤差\r\n *   距離の75%点（採用）        10%       20%\r\n *   距離の80%点               11%       37%\r\n *   山の60%点                 13%       41%\r\n *   距離の70%点               16%       29%\r\n *   山の中央値（以前）          18%       68%\r\n *   面積÷周長                 38%       87%\r\n *   距離の中央値               43%       54%\r\n *\r\n * 70〜80%のあいだは緩やかな山になっていて、75%はその中央にあたる。\r\n * 端ではないので、写真が1枚増えたくらいでは最適点が動かない。\r\n *\r\n * 【なぜ分位点で足りるのか】\r\n * 距離変換の値は「そこに収まる円の半径」なので、粒の内側では粒半径に近づき、\r\n * 縁に行くほど0に近づく。粒がいくつ接触していても、この分布の上側は\r\n * 粒の太さで決まる。かつて95%点で18.2pxと大きく外したのは、\r\n * 分位点が高すぎて塊の中心だけを見ていたため。\r\n */\r\nfunction grainEstimateRadius(dist, foreground, w, h) {\r\n  const fgVals = [];\r\n  for (let i = 0; i \u003c dist.length; i++) {\r\n    if (foreground[i]) fgVals.push(dist[i]);\r\n  }\r\n  if (fgVals.length === 0) return 0;\r\n  return percentile(fgVals, GRAIN_PARAMS.GRAIN_RADIUS_PCTL) * GRAIN_PARAMS.RADIUS_CORRECTION;\r\n}\r\n\r\n/**\r\n * 領域ごとの面積・重心・長短径・充実度・外接矩形をまとめて求める。\r\n * 2次モーメントから「同じ広がりを持つ楕円」を当てはめている。\r\n */\r\nfunction grainRegionProps(labels, count, w, h) {\r\n  const size = count + 1;\r\n  const n = new Float64Array(size);\r\n  const sx = new Float64Array(size);\r\n  const sy = new Float64Array(size);\r\n  const sxx = new Float64Array(size);\r\n  const syy = new Float64Array(size);\r\n  const sxy = new Float64Array(size);\r\n  const x0 = new Float64Array(size).fill(Infinity);\r\n  const x1 = new Float64Array(size).fill(-Infinity);\r\n  const y0 = new Float64Array(size).fill(Infinity);\r\n  const y1 = new Float64Array(size).fill(-Infinity);\r\n\r\n  for (let y = 0; y \u003c h; y++) {\r\n    for (let x = 0; x \u003c w; x++) {\r\n      const l = labels[y * w + x];\r\n      if (l \u003c= 0) continue;\r\n      n[l]++;\r\n      sx[l] += x; sy[l] += y;\r\n      sxx[l] += x * x; syy[l] += y * y; sxy[l] += x * y;\r\n      if (x \u003c x0[l]) x0[l] = x;\r\n      if (x > x1[l]) x1[l] = x;\r\n      if (y \u003c y0[l]) y0[l] = y;\r\n      if (y > y1[l]) y1[l] = y;\r\n    }\r\n  }\r\n\r\n  const props = {};\r\n  for (let l = 1; l \u003c size; l++) {\r\n    const area = n[l];\r\n    if (area \u003c= 0) continue;\r\n    const cx = sx[l] / area;\r\n    const cy = sy[l] / area;\r\n    const cxx = sxx[l] / area - cx * cx;\r\n    const cyy = syy[l] / area - cy * cy;\r\n    const cxy = sxy[l] / area - cx * cy;\r\n\r\n    const mid = (cxx + cyy) / 2;\r\n    const diff = Math.sqrt(Math.max(0, ((cxx - cyy) / 2) ** 2 + cxy * cxy));\r\n    const major = 4 * Math.sqrt(Math.max(0, mid + diff));\r\n    const minor = 4 * Math.sqrt(Math.max(0, mid - diff));\r\n\r\n    const ellipseArea = (Math.PI / 4) * major * minor;\r\n    props[l] = {\r\n      id: l,\r\n      area: area,\r\n      cx: cx,\r\n      cy: cy,\r\n      major: major,\r\n      minor: minor,\r\n      elongation: minor > 1e-6 ? major / minor : Infinity,\r\n      fill: ellipseArea > 1e-6 ? area / ellipseArea : 0,\r\n      bbox: [x0[l], y0[l], x1[l], y1[l]],\r\n    };\r\n  }\r\n  return props;\r\n}\r\n\r\n/**\r\n * 籾を1粒ずつ切り出す。\r\n *\r\n * @param {Float64Array} s 彩度\r\n * @param {Float64Array} v 明度\r\n * @param {Float64Array} lightness L*（粒の種の検出に使う）\r\n * @param {Uint8Array} region 解析対象領域（紙のマスク）\r\n */\r\nfunction grainSegment(s, v, lightness, region, w, h) {\r\n  const n = w * h;\r\n  const warnings = [];\r\n  const empty = {\r\n    labels: new Int32Array(n), props: {}, validIds: [], excludedIds: [],\r\n    radius: 0, foregroundRatio: 0, warnings: warnings,\r\n  };\r\n\r\n  // --- 1. 前景抽出 ---\r\n  // 白紙は彩度がほぼ0、紙に落ちた影も無彩色のまま暗くなるだけ。\r\n  // だから明度ではなく彩度で切ると、影を拾わずに籾だけを取れる。\r\n  let foreground = new Uint8Array(n);\r\n  let fgCount = 0, regionCount = 0;\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (region[i]) regionCount++;\r\n    if (region[i] && s[i] >= GRAIN_PARAMS.GRAIN_MIN_SAT && v[i] >= GRAIN_PARAMS.SHADOW_MAX_V) {\r\n      foreground[i] = 1;\r\n      fgCount++;\r\n    }\r\n  }\r\n  empty.foregroundRatio = regionCount ? fgCount / regionCount : 0;\r\n\r\n  if (fgCount === 0) {\r\n    warnings.push('籾とみなせる部分が見つかりませんでした。');\r\n    return empty;\r\n  }\r\n\r\n  // --- 粒の半径を推定 ---\r\n  let dt = distanceTransform(foreground, w, h, false);\r\n  const radius = grainEstimateRadius(dt.dist, foreground, w, h);\r\n  empty.radius = radius;\r\n\r\n  if (radius \u003c GRAIN_PARAMS.MIN_GRAIN_RADIUS_PX) {\r\n    warnings.push('籾が小さすぎて1粒ずつに分けられません。もっと近づいて撮ってください。');\r\n    return empty;\r\n  }\r\n\r\n  const estArea = Math.PI * radius * radius * GRAIN_PARAMS.GRAIN_ASPECT_GUESS;\r\n  foreground = dropSmall(foreground, w, h, estArea * GRAIN_PARAMS.MIN_BLOB_AREA_RATIO);\r\n\r\n  let any = false;\r\n  for (let i = 0; i \u003c n; i++) if (foreground[i]) { any = true; break; }\r\n  if (!any) {\r\n    warnings.push('籾とみなせる部分が見つかりませんでした。');\r\n    return empty;\r\n  }\r\n\r\n  // --- 2. 茎・枝梗の除去（距離変換によるオープニング） ---\r\n  // 半径 rThin の円が通れない細い部分を消す。円を一度縮めてから\r\n  // 同じ半径だけ広げ直すので、粒は元の太さに戻り、茎だけが消える。\r\n  const rThin = radius * GRAIN_PARAMS.THIN_RADIUS_RATIO;\r\n  dt = distanceTransform(foreground, w, h, false);\r\n\r\n  const core = new Uint8Array(n);\r\n  let coreAny = false;\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (dt.dist[i] >= rThin) { core[i] = 1; coreAny = true; }\r\n  }\r\n\r\n  let opened;\r\n  if (!coreAny) {\r\n    warnings.push('籾と茎を区別できませんでした。');\r\n    opened = foreground;\r\n  } else {\r\n    const notCore = new Uint8Array(n);\r\n    for (let i = 0; i \u003c n; i++) notCore[i] = core[i] ? 0 : 1;\r\n    const spread = distanceTransform(notCore, w, h, false);\r\n    opened = new Uint8Array(n);\r\n    for (let i = 0; i \u003c n; i++) {\r\n      opened[i] = foreground[i] && spread.dist[i] \u003c= rThin ? 1 : 0;\r\n    }\r\n  }\r\n\r\n  // --- 3. 種（粒の中心）の検出 ---\r\n  // 籾は丸く艶があるため、真上からの光で1粒に1本ずつ明るい稜線ができる。\r\n  // 明るさを粒の大きさに合わせて平滑化してから局所最大を取ると、\r\n  // 粒が密着していても粒ごとに山が分かれる（距離変換ではこれができない）。\r\n  const dt2 = distanceTransform(opened, w, h, false);\r\n\r\n  const sigma = Math.max(1.0, radius * GRAIN_PARAMS.SEED_SMOOTH_RATIO);\r\n  // 変数名を window にしない。グローバルの window を隠してしまい、\r\n  // 「このコードは画面を触っていないか」の検査にも引っかかる。\r\n  let seedWin = Math.max(GRAIN_PARAMS.SEED_MIN_WINDOW, Math.round(radius * GRAIN_PARAMS.SEED_WINDOW_RATIO));\r\n  if (seedWin % 2 === 0) seedWin += 1;   // 局所最大の窓は中心を持つ奇数にする\r\n\r\n  // 前景の外は0で埋めてから平滑化する。明るい紙を含めると\r\n  // 粒の縁が紙に引っ張られて山がずれる。\r\n  const filled = new Float64Array(n);\r\n  for (let i = 0; i \u003c n; i++) filled[i] = opened[i] ? lightness[i] : 0;\r\n  const smooth = gaussianBlur(filled, w, h, sigma);\r\n  const localMax = maximumFilter(smooth, w, h, seedWin);\r\n\r\n  const minSeedDist = radius * GRAIN_PARAMS.SEED_MIN_DIST_RATIO;\r\n  const peaks = new Uint8Array(n);\r\n  for (let i = 0; i \u003c n; i++) {\r\n    peaks[i] = opened[i] && smooth[i] >= localMax[i] - 1e-6 && dt2.dist[i] >= minSeedDist ? 1 : 0;\r\n  }\r\n\r\n  const seeds = labelComponents(peaks, w, h);\r\n  if (seeds.count === 0) {\r\n    warnings.push('籾を1粒ずつに分けられませんでした。籾が重なっていないか確認してください。');\r\n    return empty;\r\n  }\r\n\r\n  // --- 4. 各画素を最も近い種に割り当てる ---\r\n  // 接触した2粒は、2つの種の垂直二等分線で分かれる。\r\n  const notSeed = new Uint8Array(n);\r\n  for (let i = 0; i \u003c n; i++) notSeed[i] = seeds.labels[i] === 0 ? 1 : 0;\r\n  const assign = distanceTransform(notSeed, w, h, true);\r\n\r\n  const labels = new Int32Array(n);\r\n  for (let i = 0; i \u003c n; i++) {\r\n    labels[i] = opened[i] ? seeds.labels[assign.nearest[i]] : 0;\r\n  }\r\n\r\n  // --- 5. 形の検査 ---\r\n  const props = grainRegionProps(labels, seeds.count, w, h);\r\n  const ids = Object.keys(props).map(Number);\r\n  if (ids.length === 0) {\r\n    warnings.push('籾を1粒ずつに分けられませんでした。');\r\n    return { ...empty, labels: labels };\r\n  }\r\n\r\n  // 面積の基準は、実際に切り出せた粒の中央値を使う。\r\n  // 推定半径からの計算値より、その写真の実物に合う。\r\n  const medianArea = median(ids.map((i) => props[i].area));\r\n\r\n  const validIds = [];\r\n  const excludedIds = [];\r\n  for (const id of ids) {\r\n    const p = props[id];\r\n    let reason = null;\r\n    if (p.area \u003c medianArea * GRAIN_PARAMS.GRAIN_AREA_MIN_RATIO) {\r\n      reason = '小さすぎる';\r\n    } else if (p.area > medianArea * GRAIN_PARAMS.GRAIN_AREA_MAX_RATIO) {\r\n      reason = '大きすぎる（粒が分かれていない可能性）';\r\n    } else if (p.elongation > GRAIN_PARAMS.GRAIN_MAX_ELONGATION) {\r\n      reason = '細長すぎる（茎の残りの可能性）';\r\n    } else if (p.minor \u003c radius * GRAIN_PARAMS.GRAIN_MIN_MINOR_RATIO) {\r\n      reason = '細すぎる（茎・枝梗の可能性）';\r\n    } else if (p.fill \u003c GRAIN_PARAMS.GRAIN_MIN_FILL) {\r\n      reason = '形がいびつ';\r\n    }\r\n    p.excludeReason = reason;\r\n    if (reason === null) validIds.push(id);\r\n    else excludedIds.push(id);\r\n  }\r\n\r\n  return {\r\n    labels: labels,\r\n    props: props,\r\n    validIds: validIds,\r\n    excludedIds: excludedIds,\r\n    radius: radius,\r\n    foregroundRatio: empty.foregroundRatio,\r\n    warnings: warnings,\r\n  };\r\n}\r\n\r\n﻿/* ===== js: analysis/grain-model.js ===== */\r\n// 籾1粒ごとの特徴量・黄化判定・集計（JS版）\r\n//\r\n// src/kariire/ の features.py / labels.py / model.py / ratio.py を移したもの。\r\n//\r\n// 【判定に使う指標】\r\n//     籾黄化率(%) = 黄化した籾数 ÷ 1穂の全籾数 × 100\r\n//     85%以上で刈取適期\r\n//\r\n// 黄化に数えるのは yellow（完全に黄化）と brown（黄化を通り越した褐変）。\r\n// greenbelt（一部でも緑が残る帯緑籾）と green は未熟として数えない。\r\n\r\n// 画素の色分類。既存の PX_* と同じ値だが、同じ名前で二重に宣言できないため\r\n// 接頭辞を変えてある。\r\nconst GPX_GREEN = 1;\r\nconst GPX_YG = 2;\r\nconst GPX_YELLOW = 3;\r\nconst GPX_BROWN = 4;\r\nconst GPX_OTHER = 5;\r\n\r\n/** 色相と彩度から画素を分類する。既存の classifyPixel と同じ判定順序。 */\r\nfunction grainClassifyPixel(h, s) {\r\n  if (s \u003c GRAIN_HSV.minSat) return GPX_OTHER;\r\n  if (h >= GRAIN_HSV.greenMin && h \u003c= GRAIN_HSV.greenMax) return GPX_GREEN;\r\n  if (h >= GRAIN_HSV.ygMin && h \u003c GRAIN_HSV.ygMax) return GPX_YG;\r\n  if (h >= GRAIN_HSV.yellowMin && h \u003c GRAIN_HSV.yellowMax) return GPX_YELLOW;\r\n  if (h >= GRAIN_HSV.brownMin && h \u003c GRAIN_HSV.brownMax) return GPX_BROWN;\r\n  return GPX_OTHER;\r\n}\r\n\r\n/** 母集団標準偏差（numpy の既定と同じ ddof=0）。 */\r\nfunction stdev(values, mean) {\r\n  let acc = 0;\r\n  for (let i = 0; i \u003c values.length; i++) {\r\n    const d = values[i] - mean;\r\n    acc += d * d;\r\n  }\r\n  return Math.sqrt(acc / values.length);\r\n}\r\n\r\n/**\r\n * 籾1粒ごとの特徴量を取り出す。\r\n * 並びは GRAIN_FEATURE_NAMES と一致していること（モデルの係数の列に対応する）。\r\n *\r\n * 戻り値は { rows, kept }。kept は rows と同じ並びの粒ID。\r\n * 画素が1つも取れなかった粒は飛ばすので、呼び出し側が seg.validIds の\r\n * 添字でラベルを対応づけると1粒ぶんずれる。Python 側（features.py）も\r\n * 同じ理由で kept を返している。\r\n */\r\nfunction grainExtractFeatures(ctx, seg) {\r\n  const { s, v, hue, L, A, B, paper, w, h } = ctx;\r\n  const ids = seg.validIds;\r\n  if (ids.length === 0) return { rows: [], kept: [] };\r\n\r\n  // まわりの紙の明るさを引くための下ごしらえ。\r\n  // 影で暗くなった粒を、明るさの絶対値で誤判定しないための補正に使う。\r\n  const iw = w + 1;\r\n  const paperL = new Float64Array(w * h);\r\n  const paperN = new Float64Array(w * h);\r\n  let globalSum = 0, globalN = 0;\r\n  for (let i = 0; i \u003c w * h; i++) {\r\n    if (paper[i]) {\r\n      paperL[i] = L[i];\r\n      paperN[i] = 1;\r\n      globalSum += L[i];\r\n      globalN++;\r\n    }\r\n  }\r\n  const paperLInt = integralImage(paperL, w, h);\r\n  const paperNInt = integralImage(paperN, w, h);\r\n  const globalPaperL = globalN > 0 ? globalSum / globalN : 50;\r\n\r\n  const box = Math.max(8, Math.round(seg.radius * GRAIN_PARAMS.PAPER_BOX_RATIO));\r\n  const medianArea = median(ids.map((i) => seg.props[i].area));\r\n\r\n  const rows = [];\r\n  const kept = [];\r\n  for (const gid of ids) {\r\n    const p = seg.props[gid];\r\n    const [bx0, by0, bx1, by1] = p.bbox;\r\n\r\n    const Lv = [], Av = [], Bv = [], hv = [];\r\n    let sumL = 0, sumA = 0, sumB = 0, sumH = 0, sumS = 0, sumV = 0, sumC = 0;\r\n    let nGreen = 0, nYg = 0, nYellow = 0, nBrown = 0;\r\n\r\n    for (let y = by0; y \u003c= by1; y++) {\r\n      for (let x = bx0; x \u003c= bx1; x++) {\r\n        const i = y * w + x;\r\n        if (seg.labels[i] !== gid) continue;\r\n        Lv.push(L[i]); Av.push(A[i]); Bv.push(B[i]); hv.push(hue[i]);\r\n        sumL += L[i]; sumA += A[i]; sumB += B[i];\r\n        sumH += hue[i]; sumS += s[i]; sumV += v[i];\r\n        sumC += Math.sqrt(A[i] * A[i] + B[i] * B[i]);\r\n\r\n        const cls = grainClassifyPixel(hue[i], s[i]);\r\n        if (cls === GPX_GREEN) nGreen++;\r\n        else if (cls === GPX_YG) nYg++;\r\n        else if (cls === GPX_YELLOW) nYellow++;\r\n        else if (cls === GPX_BROWN) nBrown++;\r\n      }\r\n    }\r\n    const n = Lv.length;\r\n    if (n === 0) continue;\r\n\r\n    // --- まわりの紙の明るさ ---\r\n    const qx0 = Math.max(0, bx0 - box);\r\n    const qy0 = Math.max(0, by0 - box);\r\n    const qx1 = Math.min(w, bx1 + 1 + box);\r\n    const qy1 = Math.min(h, by1 + 1 + box);\r\n    const pn = boxSum(paperNInt, iw, qx0, qy0, qx1, qy1);\r\n    const localPaperL = pn >= GRAIN_PARAMS.PAPER_LOCAL_MIN_PX ? boxSum(paperLInt, iw, qx0, qy0, qx1, qy1) / pn : globalPaperL;\r\n\r\n    const meanL = sumL / n;\r\n    const meanA = sumA / n;\r\n    const meanB = sumB / n;\r\n\r\n    rows.push([\r\n      meanL, percentile(Lv, 25), percentile(Lv, 75),\r\n      meanA, percentile(Av, 25), percentile(Av, 75),\r\n      meanB, percentile(Bv, 25), percentile(Bv, 75),\r\n      sumC / n,\r\n      sumH / n, percentile(hv, 25), percentile(hv, 75),\r\n      sumS / n, sumV / n,\r\n      nGreen / n, nYg / n, nYellow / n, nBrown / n,\r\n      stdev(Bv, meanB), stdev(Av, meanA), stdev(Lv, meanL),\r\n      meanL - localPaperL,\r\n      localPaperL > 1e-6 ? meanL / localPaperL : 1,\r\n      medianArea > 0 ? p.area / medianArea : 1,\r\n      Math.min(p.elongation, GRAIN_PARAMS.ELONGATION_CAP),\r\n      p.fill,\r\n    ]);\r\n    kept.push(gid);\r\n  }\r\n  return { rows: rows, kept: kept };\r\n}\r\n\r\n/**\r\n * 学習済みモデルで1粒を判定する。\r\n * 標準化してから線形結合し、いちばん大きいクラスを選ぶだけ。\r\n * この軽さのおかげで、外部の実行環境なしに単一HTMLのまま動かせる。\r\n */\r\nfunction grainPredict(model, row) {\r\n  const nc = model.classes.length;\r\n  let best = 0;\r\n  let bestScore = -Infinity;\r\n  for (let c = 0; c \u003c nc; c++) {\r\n    let acc = model.intercept[c];\r\n    const coef = model.coef[c];\r\n    for (let f = 0; f \u003c row.length; f++) {\r\n      acc += coef[f] * ((row[f] - model.mean[f]) / model.scale[f]);\r\n    }\r\n    if (acc > bestScore) { bestScore = acc; best = c; }\r\n  }\r\n  return model.classes[best];\r\n}\r\n\r\n// 学習前に使う色の目安（下書き用）。値は params.py に集約してある。\r\n/**\r\n * 【分岐の順序について — 不具合の修正】\r\n * 以前は 緑 → 褐変 → 帯緑 → 黄化 の順で、褐変の判定が帯緑より先にあった。\r\n * そのため「緑が半分残っているが褐変も45%以上ある」籾が褐変と判定され、\r\n * 褐変は黄化の内数なので黄化に算入されていた。\r\n * 誤りの向きが「黄化率を高く出す＝早刈り」という危険な側だったため、\r\n * 緑の有無を褐変より先に見るように直した。Python側（labels.py）と同じ順序。\r\n */\r\nfunction grainAutoLabel(row, th) {\r\n  const iGreen = GRAIN_FEATURE_NAMES.indexOf('frac_green');\r\n  const iYg = GRAIN_FEATURE_NAMES.indexOf('frac_yg');\r\n  const iBrown = GRAIN_FEATURE_NAMES.indexOf('frac_brown');\r\n  return grainLabelFromColor(row[iGreen] + row[iYg], row[iBrown], th);\r\n}\r\n\r\n/**\r\n * 粒の色の内訳からラベルを決める。\r\n *\r\n * 特徴量の行ではなく「緑の割合」「褐変の割合」の2つだけを受けるようにしてある。\r\n * 人が直した粒を学習に使うとき、写真そのものを残さずこの2つだけ保存すれば\r\n * 済むようにするため。学習後の判定もこの同じ関数を通る。\r\n *\r\n * @param {number} green 1粒の画素のうち緑＋黄緑の割合\r\n * @param {number} brown 同じく褐変の割合\r\n * @param {?object} th しきい値。省略すると既定値（GRAIN_PARAMS）\r\n */\r\nfunction grainLabelFromColor(green, brown, th) {\r\n  const t = th || GRAIN_PARAMS;\r\n  if (green >= t.AUTO_GREEN_FULL) return 'green';\r\n  if (green >= t.AUTO_GREENBELT_MIN) return 'greenbelt';\r\n  if (brown >= t.AUTO_BROWN_MIN) return 'brown';\r\n  return 'yellow';\r\n}\r\n\r\n/**\r\n * その粒が「籾でありうる色」をしているか。していなければ母数から外す。\r\n *\r\n * 【なぜ必要か — 実測にもとづく追加】\r\n * grainAutoLabel は緑・褐変のどちらでもない粒を最後に yellow へ落とす。\r\n * ところが画素の分類には PX_OTHER（低彩度、または籾ではありえない色相）があり、\r\n * その塊も「緑でも褐変でもない」ので黄化に算入されていた。\r\n *\r\n * 260810 の写真では、黄化と数えた粒の 60.8% がこれだった。中身は\r\n * 色相 200〜218°・彩度 0.554 の青い画素で、青空の下で白い面に落ちた影である。\r\n * segment 側は「紙に落ちた影も無彩色のまま暗くなるだけ」を前提に彩度で前景を\r\n * 切っているが、屋外では影が空の青を拾って強く色づくため、この前提が崩れる。\r\n *\r\n * 青い影を「黄化した籾」と数えるのは、誤りの向きが早刈り側で危険なので、\r\n * 学習済みモデルの有無にかかわらず、判定より先に母数から外す。\r\n *\r\n * ここで外すのは色だけを根拠にした判断で、前景抽出そのものは直していない。\r\n * 影を前景として拾う問題自体は grain-segment 側の課題として残っている。\r\n */\r\nfunction grainColorImplausible(row) {\r\n  const f = (name) => row[GRAIN_FEATURE_NAMES.indexOf(name)];\r\n  const classified = f('frac_green') + f('frac_yg') + f('frac_yellow') + f('frac_brown');\r\n  return classified \u003c GRAIN_PARAMS.GRAIN_MIN_CLASSIFIED;\r\n}\r\n\r\n/**\r\n * 籾のラベルを集計して籾黄化率を出す。\r\n * 黄化に数えるのは yellow と brown。exclude は母数から外す。\r\n */\r\nfunction grainCount(labels) {\r\n  const counts = { yellow: 0, greenbelt: 0, green: 0, brown: 0, exclude: 0 };\r\n  for (const lb of labels) {\r\n    if (counts[lb] !== undefined) counts[lb]++;\r\n  }\r\n  const total = counts.yellow + counts.greenbelt + counts.green + counts.brown;\r\n  if (total === 0) {\r\n    return { counts: counts, total: 0, yellowing: null, greenRatio: null, brownRatio: null };\r\n  }\r\n  return {\r\n    counts: counts,\r\n    total: total,\r\n    yellowing: ((counts.yellow + counts.brown) / total) * 100,\r\n    greenRatio: ((counts.greenbelt + counts.green) / total) * 100,\r\n    brownRatio: (counts.brown / total) * 100,\r\n  };\r\n}\r\n\r\n// ステージ判定（黄化率 → まだ早い〜刈り遅れ）は、ここには置かない。\r\n//\r\n// 以前は grainStageFromYellowing という関数を用意していたが、組み込み後の\r\n// HTMLからは一度も呼ばれていなかった。実際に使われるのは既存の\r\n// stageFromGreenRatio で、そちらは品種マスタ（greenHi / greenLo）を見る。\r\n// 同じ判定が2か所にあると、片方だけ直したときに気づけないため削除した。\r\n//\r\n// 品種ごとの適期は設定タブの品種マスタで変える。\r\n// 帯緑籾率で持っているので、黄化率でいえば 100 から引いた値になる\r\n// （コシヒカリの 15 / 10 は黄化率 85% / 90%）。\r\n\r\n/* ===== js: analysis/grain-analyze.js ===== */\r\n// 粒カウント方式の入口\r\n//\r\n// 既存の analyzePanicle と差し替えられるよう、戻り値の形をそろえてある。\r\n// 同じ名前の項目（greenIndex / yellowingRatio / composition / mask / warnings）を\r\n// 同じ意味・同じ単位で返すので、judge() も画面表示も学習も履歴もそのまま動く。\r\n// 粒ごとの内訳（grains / grainCounts）は追加した項目。\r\n//\r\n// 【単位のそろえ方】\r\n//   greenIndex     … 帯緑籾率を 0〜1 で表したもの（籾数ベース）\r\n//   yellowingRatio … 籾黄化率を 0〜1 で表したもの（籾数ベース）\r\n//\r\n// 既存の換算式は初期状態で「傾き1・切片0」なので、greenIndex に\r\n// 籾数ベースの帯緑籾率を入れれば estimateGreenRatioPct がそのまま\r\n// 正しい帯緑籾率(%)を返す。品種マスタの greenHi:15 / greenLo:10 は\r\n// 黄化率でいう 85% / 90% にあたり、指導基準と一致する。\r\n// つまりキャリブレーションは不要になる。\r\n\r\n/**\r\n * 穂の写真から籾を1粒ずつ数えて黄化率を出す。\r\n *\r\n * @param {ImageData} imageData 作業解像度の画像\r\n * @param {?{x:number,y:number,w:number,h:number}} rect 解析範囲（null なら全体）\r\n * @param {?object} model 学習済みモデル。null なら色の目安で判定する\r\n * @param {?object} thresholds 判定に使う色のしきい値。\r\n *        省略するとその場で grainThresholds() を読む。\r\n *        Worker の中には保存（DB）が無いので、呼ぶ側が渡せるようにしてある。\r\n */\r\nfunction analyzeGrains(imageData, rect, model, thresholds) {\r\n  const W = imageData.width;\r\n  const H = imageData.height;\r\n\r\n  const rx = rect ? clamp(Math.round(rect.x), 0, W - 1) : 0;\r\n  const ry = rect ? clamp(Math.round(rect.y), 0, H - 1) : 0;\r\n  const rw = rect ? clamp(Math.round(rect.w), 1, W - rx) : W;\r\n  const rh = rect ? clamp(Math.round(rect.h), 1, H - ry) : H;\r\n\r\n  // 指定範囲だけを切り出して扱う。範囲外の机や地面を巻き込まないため。\r\n  const n = rw * rh;\r\n  const src = new Uint8ClampedArray(n * 4);\r\n  for (let y = 0; y \u003c rh; y++) {\r\n    const from = ((ry + y) * W + rx) * 4;\r\n    src.set(imageData.data.subarray(from, from + rw * 4), y * rw * 4);\r\n  }\r\n\r\n  // --- ホワイトバランス（紙の検出より先に行う） ---\r\n  // 色かぶりが残ったままだと「彩度が低く明るい＝紙」の判定がずれる。\r\n  let hsv = grainRgbToHsv(src, n);\r\n  const wb = grainEstimateWB(src, hsv.s, hsv.v, n);\r\n  const data = grainApplyWB(src, wb.gains);\r\n\r\n  hsv = grainRgbToHsv(data, n);\r\n  const lab = grainRgbToLab(data, n);\r\n\r\n  // --- 紙の検出と粒の切り出し ---\r\n  const paper = grainDetectPaper(hsv.s, hsv.v, rw, rh);\r\n  const seg = grainSegment(hsv.s, hsv.v, lab.L, paper.mask, rw, rh);\r\n\r\n  const ctx = {\r\n    s: hsv.s, v: hsv.v, hue: hsv.h,\r\n    L: lab.L, A: lab.a, B: lab.b,\r\n    paper: paper.mask, w: rw, h: rh,\r\n  };\r\n\r\n  // --- 1粒ずつ判定する ---\r\n  // 籾でありうる色をしていない粒は、判定より先に母数から外す。\r\n  // 学習済みモデルを使う場合も同じく外す（青い影を分類しても意味がないため）。\r\n  const feat = grainExtractFeatures(ctx, seg);\r\n  // 学習済みがあればそれを、無ければ既定値を使う\r\n  const th = thresholds || grainThresholds();\r\n  let implausible = 0;\r\n  const labels = feat.rows.map((row) => {\r\n    if (grainColorImplausible(row)) {\r\n      implausible++;\r\n      return 'exclude';\r\n    }\r\n    return model ? grainPredict(model, row) : grainAutoLabel(row, th);\r\n  });\r\n  // --- 粒ごとの情報（あとで人が直せるようにするため） ---\r\n  // 1粒ずつ確かめる画面と、その結果からのしきい値の学習に使う。\r\n  // 27個の特徴量すべてではなく、判定に効く2つと切り抜きに要る位置だけ持つ\r\n  // （保存するのはこの2つだけなので、写真そのものを残さずに学習できる）。\r\n  const iGreen = GRAIN_FEATURE_NAMES.indexOf('frac_green');\r\n  const iYg = GRAIN_FEATURE_NAMES.indexOf('frac_yg');\r\n  const iBrown = GRAIN_FEATURE_NAMES.indexOf('frac_brown');\r\n  const grains = feat.kept.map((gid, i) => {\r\n    const p = seg.props[gid];\r\n    return {\r\n      id: gid,\r\n      label: labels[i],\r\n      auto: labels[i],                   // 人が直したかどうかを見分けるため、元の判定を残す\r\n      green: feat.rows[i][iGreen] + feat.rows[i][iYg],\r\n      brown: feat.rows[i][iBrown],\r\n      bbox: p.bbox,                      // [x0, y0, x1, y1]（解析範囲の中の座標）\r\n      area: p.area,\r\n    };\r\n  });\r\n\r\n  // 数えるのは必ず grains から。人が塗り替えたあとの数え直し\r\n  // （recountFromGrains）と同じ材料・同じ数え方にするため。\r\n  const counted = grainCount(\r\n    grains.map((g) => g.label).concat(seg.excludedIds.map(() => 'exclude')),\r\n  );\r\n\r\n  // --- 表示用のマスクを作る（既存のオーバーレイ描画がそのまま使える形） ---\r\n  const LABEL_TO_PX = {\r\n    yellow: PX_YELLOW,\r\n    greenbelt: PX_YG,\r\n    green: PX_GREEN,\r\n    brown: PX_BROWN,\r\n    exclude: PX_OTHER,\r\n  };\r\n  const maskData = new Uint8Array(n);\r\n  const idToPx = {};\r\n  // 添字ではなく kept（特徴量が取れた粒のID）で対応づける\r\n  feat.kept.forEach((gid, i) => { idToPx[gid] = LABEL_TO_PX[labels[i]] || PX_OTHER; });\r\n  for (const gid of seg.excludedIds) idToPx[gid] = PX_OTHER;\r\n\r\n  const hueHist = new Uint32Array(180);\r\n  const hueCount = new Uint32Array(360);\r\n  let foreground = 0;\r\n  let shadowPx = 0;   // 粒として切り出した画素のうち、籾でありえない色相のもの\r\n  // 色相の分布に入れた画素の数。除外した粒は入れていないので、\r\n  // foreground とは一致しない。中央値の分母にはこちらを使う。\r\n  // foreground を渡していたときは、除外した粒の画素ぶんだけ\r\n  // 中央値が緑寄り（大きい側）にずれていた。\r\n  let hueTotal = 0;\r\n\r\n  for (let i = 0; i \u003c n; i++) {\r\n    const gid = seg.labels[i];\r\n    if (!gid) continue;\r\n    const px = idToPx[gid];\r\n    if (px === undefined) continue;\r\n    maskData[i] = px;\r\n    foreground++;\r\n    const hv = hsv.h[i];\r\n    if (hv \u003c GRAIN_HSV.brownMin || hv > GRAIN_HSV.greenMax) shadowPx++;\r\n    if (px !== PX_OTHER) {\r\n      hueHist[Math.min(179, (hv / 2) | 0)]++;\r\n      hueCount[Math.min(359, hv | 0)]++;\r\n      hueTotal++;\r\n    }\r\n  }\r\n\r\n  // --- 内訳（籾数ベース）。既存の積み上げ棒がそのまま使える形にする ---\r\n  const c = counted.counts;\r\n  const composition = counted.total > 0 ? {\r\n    green: c.green / counted.total,\r\n    yg: c.greenbelt / counted.total,\r\n    yellow: c.yellow / counted.total,\r\n    brown: c.brown / counted.total,\r\n  } : null;\r\n\r\n  const result = {\r\n    mode: 'panicle',\r\n    method: 'grain',            // 粒カウント方式であることの目印\r\n    bgMode: 'white',\r\n    wb: wb,\r\n    // 既存と同じ名前・同じ単位（0〜1）\r\n    greenIndex: counted.greenRatio === null ? null : counted.greenRatio / 100,\r\n    yellowingRatio: counted.yellowing === null ? null : counted.yellowing / 100,\r\n    greenRatio: counted.total > 0 ? c.green / counted.total : null,\r\n    yellowRatio: counted.total > 0 ? c.yellow / counted.total : null,\r\n    brownRatio: counted.brownRatio === null ? null : counted.brownRatio / 100,\r\n    composition: composition,\r\n    counts: {\r\n      green: c.green, yg: c.greenbelt, yellow: c.yellow,\r\n      brown: c.brown, other: c.exclude,\r\n    },\r\n    total: n,\r\n    foreground: foreground,\r\n    foregroundRatio: seg.foregroundRatio,\r\n    hueMedian: medianFromHist(hueCount, hueTotal),\r\n    hist: hueHist,\r\n    mask: { data: maskData, w: rw, h: rh, x: rx, y: ry },\r\n    // --- ここから粒カウント方式で増えた項目 ---\r\n    grainCount: counted.total,\r\n    grainCounts: c,\r\n    grainRadius: seg.radius,\r\n    excludedCount: seg.excludedIds.length,\r\n    implausibleCount: implausible,   // 籾でない色として母数から外した数\r\n    workMaxEdge: Math.max(rw, rh),   // 半径の妥当性を解像度に対する比で見るため\r\n    paperFound: paper.found,\r\n    // 粒として切り出した範囲に混ざった、籾でありえない色（青い影）の割合。\r\n    // 直射日光で撮ったかどうかがこれで分かる。\r\n    shadowRatio: foreground ? shadowPx / foreground : 0,\r\n    grains: grains,                  // 1粒ずつ確かめる画面と学習に使う\r\n    thresholds: th,                  // このときどのしきい値で判定したか\r\n    // 画素ごとの粒ID。人が粒を塗り替えたときにマスクを塗り直すのに使う。\r\n    // mask.data と同じ並び（解析範囲の中の座標）。\r\n    grainMapIds: seg.labels,\r\n    warnings: [],\r\n  };\r\n\r\n  grainCollectWarnings(result, seg);\r\n  return result;\r\n}\r\n\r\n/**\r\n * 特徴量そのものを取り出す（検証用）。\r\n *\r\n * analyzeGrains と同じ前処理を通したうえで、粒ごとの特徴量27列を返す。\r\n * tests/test_parity.py が Python 側と全列を突き合わせるために使う。\r\n * 最終出力（粒数・黄化率）の比較だけでは、学習前の判定が読まない\r\n * 24個の特徴量のずれを検出できないため。\r\n */\r\nfunction grainFeatureDump(imageData) {\r\n  const n = imageData.width * imageData.height;\r\n  let hsv = grainRgbToHsv(imageData.data, n);\r\n  const wb = grainEstimateWB(imageData.data, hsv.s, hsv.v, n);\r\n  const data = grainApplyWB(imageData.data, wb.gains);\r\n\r\n  hsv = grainRgbToHsv(data, n);\r\n  const lab = grainRgbToLab(data, n);\r\n  const paper = grainDetectPaper(hsv.s, hsv.v, imageData.width, imageData.height);\r\n  const seg = grainSegment(hsv.s, hsv.v, lab.L, paper.mask, imageData.width, imageData.height);\r\n\r\n  const feat = grainExtractFeatures({\r\n    s: hsv.s, v: hsv.v, hue: hsv.h,\r\n    L: lab.L, A: lab.a, B: lab.b,\r\n    paper: paper.mask, w: imageData.width, h: imageData.height,\r\n  }, seg);\r\n\r\n  return { names: GRAIN_FEATURE_NAMES, kept: feat.kept, rows: feat.rows };\r\n}\r\n\r\n/** 判定を信用してよいかの確認。既存の collectWarnings と同じ形式で返す。 */\r\nfunction grainCollectWarnings(res, seg) {\r\n  const w = res.warnings;\r\n\r\n  if (!res.paperFound) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: '白い紙を検出できませんでした。写真全体を解析したため、机や地面が籾として数えられている可能性があります。白い紙を敷いて撮り直してください。',\r\n    });\r\n  }\r\n  if (res.wb.method === 'gray') {\r\n    w.push({ level: 'warn', text: '白い紙が写っていないため簡易的な色補正になりました。白い紙を背景に敷いて撮り直すと精度が上がります。' });\r\n  } else if (res.wb.method === 'none') {\r\n    w.push({ level: 'alert', text: '色補正ができませんでした。写真が暗すぎるか白飛びしている可能性があります。' });\r\n  }\r\n\r\n  for (const text of seg.warnings) {\r\n    w.push({ level: 'alert', text: text });\r\n  }\r\n\r\n  if (res.grainCount === 0) {\r\n    w.push({ level: 'alert', text: '数えられる籾がありませんでした。' });\r\n  }\r\n\r\n  if (res.grainCount > 0 && res.grainCount \u003c GRAIN_PARAMS.MIN_GRAIN_COUNT) {\r\n    w.push({\r\n      level: 'warn',\r\n      text: `数えられた籾が${res.grainCount}粒しかありません。${GRAIN_PARAMS.MIN_GRAIN_COUNT}粒以上になるよう、穂を広げて近づいて撮り直すと安定します。`,\r\n    });\r\n  }\r\n\r\n  // --- 分割が壊れていないかの確認 ---\r\n  // 下限だけでなく上限も見る。分割が壊れると粒数が実際よりはるかに多く出て、\r\n  // そのまま黄化率として表示されてしまうため。\r\n  if (res.grainCount > GRAIN_PARAMS.MAX_GRAIN_COUNT) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `${res.grainCount}粒を検出しました。1穂の籾数としては多すぎます。`\r\n        + '複数の穂が写っているか、1粒が複数に分かれて数えられています。'\r\n        + '1穂だけを写して撮り直してください。この判定は信用できません。',\r\n    });\r\n  }\r\n\r\n  // 粒半径は分割が壊れたときに真っ先に落ちるので、粒数より早く気づける。\r\n  const minRadius = res.workMaxEdge * GRAIN_PARAMS.MIN_GRAIN_RADIUS_WARN_RATIO;\r\n  if (res.grainCount > 0 && res.grainRadius > 0 && res.grainRadius \u003c minRadius) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: '籾が小さく写っているか、1粒が複数に分かれて数えられています。'\r\n        + 'もっと近づいて、穂が画面いっぱいになるように撮り直してください。',\r\n    });\r\n  }\r\n\r\n  // 直射日光で撮ったかどうか。粒として切り出した範囲に、籾でありえない\r\n  // 色相（青い影）がどれだけ混ざっているかで見る。\r\n  //\r\n  // 影は切り出しの段階で前景に入ってしまうため、粒の輪郭と半径の推定を\r\n  // 内側から狂わせる。粒数が一見それらしくても数値は当てにならない。\r\n  if (res.shadowRatio > GRAIN_PARAMS.SHADOW_WARN_RATIO) {\r\n    w.push({\r\n      level: 'warn',\r\n      text: `籾に濃い影がかかっています（籾とみなした範囲の${fmtPct(res.shadowRatio, 0)}）。`\r\n        + '直射日光の下では紙に落ちた影が青く色づき、籾の輪郭がぼやけます。'\r\n        + '明るい日陰で撮り直すと数値が安定します。',\r\n    });\r\n  }\r\n\r\n  // 籾でありえない色（青い影・写り込んだ物）を母数から外した割合。\r\n  const seen = res.grainCount + res.implausibleCount;\r\n  if (seen > 0 && res.implausibleCount / seen > GRAIN_PARAMS.MAX_IMPLAUSIBLE_RATIO) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `籾ではない色の部分を${res.implausibleCount}か所ふくんでいたため、数から除きました。`\r\n        + '穂に濃い影がかかっているか、白い紙の上に別のものが写っています。'\r\n        + '明るい日陰で、白い紙だけが背景になるように撮り直してください。',\r\n    });\r\n  }\r\n\r\n  const denom = res.grainCount + res.excludedCount;\r\n  if (denom > 0 && res.excludedCount / denom > GRAIN_PARAMS.MAX_EXCLUDE_RATIO) {\r\n    w.push({\r\n      level: 'warn',\r\n      text: `籾として数えられなかった部分が${res.excludedCount}か所あります。籾が重なっている可能性があります。重ならないように広げて撮り直してください。`,\r\n    });\r\n  }\r\n\r\n  if (res.brownRatio !== null && res.brownRatio > GRAIN_PARAMS.BROWN_WARN_RATIO) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `褐変した籾が多く見られます（${fmtPct(res.brownRatio, 0)}・黄化率の内数）。刈り遅れ、または枯れ・被害の可能性があります。`,\r\n    });\r\n  }\r\n}\r\n\r\n/* ===== js: analysis/worker-shim.js ===== */\r\n// Worker の中だけで動く部分。build.mjs が解析コードの末尾に足す。\r\n//\r\n// このファイルは画面用のHTMLには入らない。Worker用の文字列にだけ入る。\r\n\r\nself.onmessage = function (e) {\r\n  const m = e.data;\r\n  try {\r\n    // Worker には ImageData が無い環境もあるので、同じ形の入れ物を自前で渡す。\r\n    const img = { width: m.width, height: m.height, data: m.data };\r\n    const result = analyzeGrains(img, m.rect, m.model, m.thresholds);\r\n\r\n    // 大きい配列は「移して」返す。写すと数MBの複製がもう1つできる。\r\n    // これらは Worker の中で作ったもので、こちら側にはもう用が無い。\r\n    const transfer = [];\r\n    for (const buf of [result.mask.data.buffer, result.hist.buffer, result.grainMapIds.buffer]) {\r\n      if (buf && transfer.indexOf(buf) \u003c 0) transfer.push(buf);\r\n    }\r\n    self.postMessage({ id: m.id, result: result }, transfer);\r\n  } catch (err) {\r\n    self.postMessage({ id: m.id, error: String(err && err.message ? err.message : err) });\r\n  }\r\n};";
+// 7ファイル / 93 KB
+const GRAIN_WORKER_SRC = "const clamp = (v, lo, hi) => (v \u003c lo ? lo : v > hi ? hi : v);\r\nfunction fmtPct(v, digits) { return (v * 100).toFixed(digits === undefined ? 1 : digits) + '%'; }\r\nfunction grainThresholds() { return GRAIN_PARAMS; }  // 保存が無いので既定値。実際は呼ぶ側が渡す\r\n\r\n/* ===== js: analysis/colorspace.js ===== */\r\n// 色空間変換と画素分類\r\n\r\n// 画素の分類ID\r\nconst PX_BG = 0;      // 背景（白紙・暗幕・範囲外）\r\nconst PX_GREEN = 1;   // 緑籾（未熟）\r\nconst PX_YG = 2;      // 黄緑（帯緑＝移行帯）\r\nconst PX_YELLOW = 3;  // 完熟黄\r\nconst PX_BROWN = 4;   // 褐変（刈り遅れ・枯れ）\r\nconst PX_OTHER = 5;   // 分類外（低彩度・想定外の色相）\r\n\r\nconst PX_COLORS = {\r\n  [PX_GREEN]:  [ 46, 160,  60],\r\n  [PX_YG]:     [168, 192,  40],\r\n  [PX_YELLOW]: [232, 178,  32],\r\n  [PX_BROWN]:  [150,  92,  40],\r\n  [PX_OTHER]:  [130, 130, 130],\r\n};\r\n\r\nconst PX_LABELS = {\r\n  [PX_GREEN]: '緑籾（未熟）',\r\n  [PX_YG]: '黄緑（帯緑）',\r\n  [PX_YELLOW]: '完熟黄',\r\n  [PX_BROWN]: '褐変',\r\n  [PX_OTHER]: '分類外',\r\n};\r\n\r\n/**\r\n * RGB(0-255) → HSV。h は 0-360、s と v は 0-1。\r\n * 画素ループから毎回呼ぶため、戻り値は使い回しの配列に書き込む。\r\n */\r\nfunction rgbToHsv(r, g, b, out) {\r\n  const rn = r / 255, gn = g / 255, bn = b / 255;\r\n  const max = rn > gn ? (rn > bn ? rn : bn) : (gn > bn ? gn : bn);\r\n  const min = rn \u003c gn ? (rn \u003c bn ? rn : bn) : (gn \u003c bn ? gn : bn);\r\n  const d = max - min;\r\n  let h = 0;\r\n  if (d !== 0) {\r\n    if (max === rn) h = 60 * (((gn - bn) / d) % 6);\r\n    else if (max === gn) h = 60 * ((bn - rn) / d + 2);\r\n    else h = 60 * ((rn - gn) / d + 4);\r\n    if (h \u003c 0) h += 360;\r\n  }\r\n  out[0] = h;\r\n  out[1] = max === 0 ? 0 : d / max;\r\n  out[2] = max;\r\n  return out;\r\n}\r\n\r\n/** Excess Green（植生抽出の定番指標）。正の値ほど緑が優勢。 */\r\nfunction excessGreen(r, g, b) {\r\n  return (2 * g - r - b) / 255;\r\n}\r\n\r\n/**\r\n * 色相と彩度から籾の分類を決める。\r\n * 境界値は設定タブで変更できる（hsv オブジェクト）。\r\n */\r\nfunction classifyPixel(h, s, hsv) {\r\n  if (s \u003c hsv.minSat) return PX_OTHER;           // 色が薄すぎて判断できない\r\n  if (h >= hsv.greenMin && h \u003c= hsv.greenMax) return PX_GREEN;\r\n  if (h >= hsv.ygMin && h \u003c hsv.ygMax) return PX_YG;\r\n  if (h >= hsv.yellowMin && h \u003c hsv.yellowMax) return PX_YELLOW;\r\n  if (h >= hsv.brownMin && h \u003c hsv.brownMax) return PX_BROWN;\r\n  return PX_OTHER;                                // 赤紫・青など、籾ではありえない色\r\n}\r\n\r\n/* ===== js: analysis/panicle.js ===== */\r\n// 穂アップ解析（本判定）\r\n//\r\n// 白い紙の上に並べた穂を真上から撮った写真から、籾の緑／黄の比率を求める。\r\n//\r\n// 【この数値の意味】\r\n// ここで得られるのは「緑色をした画素の割合」であって、籾を1粒ずつ数えた帯緑籾率そのものではない。\r\n// 両者は強く相関するが同じ値ではないため、生値を「緑籾指数」と呼んで区別し、\r\n// 帯緑籾率への換算は judge/calibrate.js のキャリブレーションに任せる。\r\n\r\nconst HUE_BINS = 180; // 2度きざみ\r\n\r\n/**\r\n * @param {ImageData} imageData 作業解像度の画像\r\n * @param {?{x:number,y:number,w:number,h:number}} rect 解析範囲（画像座標、nullなら全体）\r\n * @param {'auto'|'white'|'dark'} bgMode 背景の種類\r\n * @param {object} hsv しきい値\r\n */\r\nfunction analyzePanicle(imageData, rect, bgMode, hsv) {\r\n  const W = imageData.width;\r\n  const H = imageData.height;\r\n\r\n  const rx = rect ? clamp(Math.round(rect.x), 0, W - 1) : 0;\r\n  const ry = rect ? clamp(Math.round(rect.y), 0, H - 1) : 0;\r\n  const rw = rect ? clamp(Math.round(rect.w), 1, W - rx) : W;\r\n  const rh = rect ? clamp(Math.round(rect.h), 1, H - ry) : H;\r\n\r\n  // 元画像を壊さないよう複製してから色補正する\r\n  const data = new Uint8ClampedArray(imageData.data);\r\n  const wb = estimateWhiteBalance(data, hsv);\r\n  applyWhiteBalance(data, wb.gains);\r\n\r\n  const hsvOut = [0, 0, 0];\r\n  const mask = new Uint8Array(rw * rh);\r\n  const hueHist = new Float64Array(HUE_BINS);\r\n  const hueCount = new Float64Array(360);\r\n  const counts = { bg: 0, green: 0, yg: 0, yellow: 0, brown: 0, other: 0 };\r\n\r\n  // 背景が「自動」のときは、まず白背景と暗背景それぞれの候補数を数えて多い方を採る\r\n  let mode = bgMode;\r\n  if (mode === 'auto') {\r\n    let whiteN = 0, darkN = 0;\r\n    // 全画素を見る必要はないので4画素おきに数える\r\n    for (let y = ry; y \u003c ry + rh; y += 2) {\r\n      for (let x = rx; x \u003c rx + rw; x += 2) {\r\n        const i = (y * W + x) * 4;\r\n        rgbToHsv(data[i], data[i + 1], data[i + 2], hsvOut);\r\n        if (hsvOut[1] \u003c hsv.bgWhiteS && hsvOut[2] > hsv.bgWhiteV) whiteN++;\r\n        else if (hsvOut[2] \u003c hsv.bgDarkV) darkN++;\r\n      }\r\n    }\r\n    const sampled = Math.ceil(rw / 2) * Math.ceil(rh / 2);\r\n    if (whiteN / sampled > 0.05 && whiteN >= darkN) mode = 'white';\r\n    else if (darkN / sampled > 0.05) mode = 'dark';\r\n    else mode = 'none';\r\n  }\r\n\r\n  for (let y = 0; y \u003c rh; y++) {\r\n    let i = ((ry + y) * W + rx) * 4;\r\n    let m = y * rw;\r\n    for (let x = 0; x \u003c rw; x++, i += 4, m++) {\r\n      const r = data[i], g = data[i + 1], b = data[i + 2];\r\n      rgbToHsv(r, g, b, hsvOut);\r\n      const h = hsvOut[0], s = hsvOut[1], v = hsvOut[2];\r\n\r\n      // --- 背景の除去 ---\r\n      const isWhiteBg = mode === 'white' && s \u003c hsv.bgWhiteS && v > hsv.bgWhiteV;\r\n      const isDarkBg = (mode === 'dark' || mode === 'white') && v \u003c hsv.bgDarkV;\r\n      if (isWhiteBg || isDarkBg) {\r\n        mask[m] = PX_BG;\r\n        counts.bg++;\r\n        continue;\r\n      }\r\n\r\n      // --- 籾の分類 ---\r\n      const cls = classifyPixel(h, s, hsv);\r\n      mask[m] = cls;\r\n      if (cls === PX_GREEN) counts.green++;\r\n      else if (cls === PX_YG) counts.yg++;\r\n      else if (cls === PX_YELLOW) counts.yellow++;\r\n      else if (cls === PX_BROWN) counts.brown++;\r\n      else { counts.other++; continue; }\r\n\r\n      hueHist[Math.min(HUE_BINS - 1, (h / 2) | 0)]++;\r\n      hueCount[Math.min(359, h | 0)]++;\r\n    }\r\n  }\r\n\r\n  const total = rw * rh;\r\n  const foreground = counts.green + counts.yg + counts.yellow + counts.brown;\r\n\r\n  // 緑籾指数：移行帯の黄緑は半分だけ緑として数える\r\n  const greenIndex = foreground > 0 ? (counts.green + counts.yg * 0.5) / foreground : null;\r\n\r\n  const summary = summarizeComposition(counts, foreground);\r\n\r\n  const result = {\r\n    mode: 'panicle',\r\n    bgMode: mode,\r\n    wb: wb,\r\n    counts: counts,\r\n    total: total,\r\n    foreground: foreground,\r\n    foregroundRatio: total > 0 ? foreground / total : 0,\r\n    greenIndex: greenIndex,\r\n    yellowingRatio: summary.yellowingRatio,\r\n    composition: summary.composition,\r\n    greenRatio: foreground > 0 ? counts.green / foreground : null,\r\n    yellowRatio: foreground > 0 ? counts.yellow / foreground : null,\r\n    brownRatio: foreground > 0 ? counts.brown / foreground : null,\r\n    hueMedian: medianFromHist(hueCount, foreground),\r\n    hist: hueHist,\r\n    mask: { data: mask, w: rw, h: rh, x: rx, y: ry },\r\n    warnings: [],\r\n  };\r\n\r\n  collectWarnings(result, hsv);\r\n  return result;\r\n}\r\n\r\n/**\r\n * 前景画素（＝籾とみなした部分）の色の内訳と黄化率を求める。\r\n *\r\n * 黄化率は緑籾指数の裏返しで、両者を足すと必ず100%になる。\r\n * 移行帯の黄緑は緑籾指数と同じく半分だけ黄側に数え、褐変は「黄を通り越した状態」として黄側に含める。\r\n * 褐変が多い場合は刈り遅れか枯れなので、別途 brownRatio として単独でも表示・警告する。\r\n */\r\nfunction summarizeComposition(counts, foreground) {\r\n  if (!foreground) return { composition: null, yellowingRatio: null };\r\n  return {\r\n    composition: {\r\n      green: counts.green / foreground,\r\n      yg: counts.yg / foreground,\r\n      yellow: counts.yellow / foreground,\r\n      brown: counts.brown / foreground,\r\n    },\r\n    yellowingRatio: (counts.yg * 0.5 + counts.yellow + counts.brown) / foreground,\r\n  };\r\n}\r\n\r\n/** 1度きざみのヒストグラムから中央値の色相を求める */\r\nfunction medianFromHist(hist, total) {\r\n  if (!total) return null;\r\n  const half = total / 2;\r\n  let acc = 0;\r\n  for (let h = 0; h \u003c hist.length; h++) {\r\n    acc += hist[h];\r\n    if (acc >= half) return h;\r\n  }\r\n  return null;\r\n}\r\n\r\nfunction collectWarnings(res, hsv) {\r\n  const w = res.warnings;\r\n\r\n  if (res.wb.method === 'clipped') {\r\n    w.push({\r\n      level: 'warn',\r\n      text: '白い紙が明るすぎて真っ白に飛んでいるため、色補正をしていません。'\r\n        + '明るい日陰で撮り直すと精度が上がります。',\r\n    });\r\n  }\r\n  if (res.wb.method === 'gray') {\r\n    w.push({ level: 'warn', text: '白い紙が写っていないため簡易的な色補正になりました。白い紙を背景に敷いて撮り直すと精度が上がります。' });\r\n  } else if (res.wb.method === 'none') {\r\n    w.push({ level: 'alert', text: '色補正ができませんでした。写真が暗すぎるか白飛びしている可能性があります。' });\r\n  }\r\n\r\n  if (res.foregroundRatio \u003c 0.05) {\r\n    w.push({ level: 'alert', text: '籾とみなせる部分がほとんど検出できません。範囲の指定と背景の設定を確認してください。' });\r\n  }\r\n\r\n  const otherRatio = res.total > 0 ? res.counts.other / res.total : 0;\r\n  if (otherRatio > 0.25) {\r\n    w.push({ level: 'warn', text: '色が薄い・想定外の色の部分が多く含まれています（' + fmtPct(otherRatio, 0) + '）。影や写り込みが多いかもしれません。' });\r\n  }\r\n\r\n  if (res.bgMode === 'none') {\r\n    w.push({ level: 'warn', text: '背景を判別できなかったため、範囲内すべてを籾として扱いました。範囲をドラッグで穂だけに絞ると精度が上がります。' });\r\n  }\r\n\r\n  if (res.brownRatio !== null && res.brownRatio > 0.20) {\r\n    w.push({ level: 'alert', text: '褐変した部分が多く見られます（' + fmtPct(res.brownRatio, 0) + '）。刈り遅れ、または枯れ・被害の可能性があります。' });\r\n  }\r\n}\r\n\r\n/** 分類マスクを半透明の色画像に変換する（オーバーレイ描画用） */\r\nfunction maskToImageData(mask, alpha) {\r\n  const out = new ImageData(mask.w, mask.h);\r\n  const px = out.data;\r\n  const a = Math.round(clamp(alpha, 0, 1) * 255);\r\n  for (let m = 0, i = 0; m \u003c mask.data.length; m++, i += 4) {\r\n    const cls = mask.data[m];\r\n    const c = PX_COLORS[cls];\r\n    if (!c) continue; // 背景は透明のまま\r\n    px[i] = c[0];\r\n    px[i + 1] = c[1];\r\n    px[i + 2] = c[2];\r\n    px[i + 3] = a;\r\n  }\r\n  return out;\r\n}\r\n\r\n/* ===== js: analysis/grain-params.js ===== */\r\n// 粒カウント方式の調整値\r\n//\r\n// ★このファイルは自動生成です。直接編集しないでください。★\r\n// 調整は src/kariire/params.py で行い、次を実行して作り直します。\r\n//     .venv\\Scripts\\python.exe tools/export_params.py\r\n//\r\n// Python 側と JS 側で値がずれると、同じ写真から違う答えが出ます。\r\n// tests/test_parity.py が両者の一致を検証します。\r\n\r\nconst GRAIN_PARAMS = {\r\n  WORK_MAX_EDGE: 1600,\r\n  WB_MIN_WHITE_RATIO: 0.02,\r\n  WB_GAIN_MIN: 0.5,\r\n  WB_GAIN_MAX: 2.0,\r\n  WHITE_REF_PCTL: 90.0,\r\n  WHITE_REL_V: 0.8,\r\n  WHITE_ABS_MIN_V: 0.3,\r\n  PAPER_MIN_RATIO: 0.05,\r\n  PAPER_MIN_BRIGHT_PCTL: 60.0,\r\n  PAPER_ERODE_PX: 3,\r\n\r\n  // 紙の白い部分が分断されたとき、どこまでを同じ1枚の紙とみなすか。\r\n  // 最大の成分に対するこの割合、または画像全体に対するこの割合を\r\n  // 超える成分は、まとめて紙として扱う（そのあと凸包で1枚に戻す）。\r\n  //\r\n  // 穂が画面の端から端まで伸びると、紙が2つに割れる。実測では\r\n  // 738,714 と 730,992 のほぼ同じ2つになり、片方だけを使ったために\r\n  // 穂の2割しか数えられなかった。\r\n  // 小さすぎるものを拾うと机の上の白い物まで巻き込むので、下限を設ける。\r\n  PAPER_PIECE_MIN_RATIO: 0.2,\r\n  PAPER_PIECE_MIN_AREA: 0.03,\r\n  // 紙の上でこの彩度以上なら「色のついたもの＝籾か茎」とみなす。\r\n  //\r\n  // 【この値は妥当。11通りの代案を試して、どれも及ばなかった 2026-08-11】\r\n  // 籾らしい画素（Lab彩度18以上・色相12〜165°・紙より暗い）のうち、\r\n  // この前景がどれだけ拾えているかを8枚で測ると 96〜99% だった\r\n  // （直射日光の 100222 でも 97.4%）。取りこぼしはしていない。\r\n  //\r\n  // b*（青−黄の軸）や Lab の彩度を使う案は、目視の実寸に対する\r\n  // 半径推定の誤差がいずれも悪化した（平均10% → 12〜164%）。\r\n  // 紙のわずかな色づきまで拾ってしまうため。\r\n  //\r\n  // 【残っている問題 — 未解決】\r\n  // 直射日光下では、紙に落ちた影が青空の色を拾って\r\n  // 彩度0.554・色相200〜218°・明度0.369まで色づき、この前景をすり抜ける。\r\n  // 100222 では前景132k画素のうち44.8k（34%）が籾でない色だった。\r\n  // 影は SHADOW_MAX_V=0.22 も超えるので明度でも落とせない。\r\n  //\r\n  // 拾ってしまった影は、粒として数える段階で grainColorImplausible が\r\n  // 母数から外す。ただし距離変換には混ざるので、半径推定への影響は残る。\r\n  // 前景の段階で色相ゲートを掛ける案は試したが、半径推定の誤差が\r\n  // 平均10%→12%・最大20%→30%と悪化したため採用していない。\r\n  //\r\n  // 撮影手順が明るい日陰を指示しているのは、この影を作らないためでもある。\r\n  GRAIN_MIN_SAT: 0.2,\r\n  SHADOW_MAX_V: 0.22,\r\n  MIN_BLOB_AREA_RATIO: 0.08,\r\n  // 粒半径の推定に使う、前景の距離変換の分位点。\r\n  //\r\n  // 【95 から 75 へ — 実測にもとづく変更 2026-08-11】\r\n  // もとは「山（局所最大）の中央値」を主に使い、95%点は山が取れないときの\r\n  // 退避先だった。山の中央値は2穂が重なって前景が太い塊になると崩れる\r\n  // （真値16pxの写真で5.1px）ため、分位点を主にした。\r\n  // 95%点だと塊の中心だけを見て過大になる（かつて18.2px）。\r\n  // 目視の実寸8枚に対する採点では 75%点が最良で、平均誤差10%・最大20%。\r\n  // 詳しくは grain-segment.js の grainEstimateRadius の説明を参照。\r\n  GRAIN_RADIUS_PCTL: 75.0,\r\n  // 距離変換から推定した半径にかける補正係数。\r\n  //\r\n  // 【0.80 から 1.00 へ — 実測にもとづく変更 2026-08-11】\r\n  // もとは「密着した粒が融合する分だけ半径が2割ほど過大に出る」として\r\n  // 0.80 をかけていた。その根拠は推定 8.0/12.0/11.1 に対し実寸 6.8/9.5/9.0\r\n  // というものだったが、この「実寸」は分割後の領域から測ったもので、\r\n  // 過分割していれば当然小さく出る。循環した根拠になっていた。\r\n  //\r\n  // 画像から直接測り直した。20px の物差しを重ねた4倍拡大で籾の短径を読むと、\r\n  // 080805 の半径はおよそ 13px。分割が正しく効いている同写真の粒面積の\r\n  // 中央値 1078px から楕円（長短径比2.5）として逆算しても 11.7px になる。\r\n  // 補正前の推定値は 12.0 でこれに一致し、0.80 をかけた 9.6 は2割小さい。\r\n  //\r\n  // 分割境界を重ねて目視でも確認した。0.80 では 080805・100246 の両方で\r\n  // 1粒が2〜4片に切られ、1.00 では1粒が1領域になる。\r\n  RADIUS_CORRECTION: 1.0,\r\n  THIN_RADIUS_RATIO: 0.38,\r\n  // ぼかしと窓の大きさの上限（画素）。\r\n  //\r\n  // どちらも推定した粒の半径に比例して大きくする。ぼかしも最大値フィルタも\r\n  // 窓の大きさに比例して重いので、半径が大きく出ると解析が急に遅くなる。\r\n  // 大きな塊が1つだけ写った写真（手・バケツ・近すぎる葉）で半径が\r\n  // 100画素と出ると、作業解像度では分単位で待たされる。\r\n  // 粒として妥当な半径は 20 画素前後なので、その3倍で頭打ちにする。\r\n  // ここで頭打ちにしても、粒数が少なすぎる写真は別途はじかれる。\r\n  SEED_WINDOW_MAX: 60,\r\n\r\n  SEED_SMOOTH_RATIO: 0.28,\r\n  SEED_WINDOW_RATIO: 1.3,\r\n  SEED_MIN_WINDOW: 5,\r\n  SEED_MIN_DIST_RATIO: 0.5,\r\n  GRAIN_AREA_MIN_RATIO: 0.25,\r\n  GRAIN_AREA_MAX_RATIO: 3.0,\r\n  GRAIN_MAX_ELONGATION: 5.0,\r\n  GRAIN_MIN_FILL: 0.45,\r\n  GRAIN_MIN_MINOR_RATIO: 1.2,\r\n  // 判断の境目にどれだけ近ければ「1枚で決められない」と断るか（帯緑籾率のポイント）。\r\n  //\r\n  // 【実測 2026-08-19】同じ穂を崩して置き直し、角度を変えて撮ると、\r\n  // 黄化率は適期付近の穂で 87.8〜92.6%（幅4.8ポイント・標準偏差2.4）まで動いた。\r\n  // 真の値は同じはずなので、これは置き方だけで生じる誤差である。\r\n  // 黄化率73%の穂では幅2.2ポイントに収まり、\r\n  // **緑の籾が少ない（＝適期付近の）穂ほど大きく振れる**。\r\n  // 1粒が境目を越えるか越えないかが、そのまま率に響くため。\r\n  //\r\n  // 適期の帯は5ポイント幅しかない。境目から5ポイント以内にある数字は、\r\n  // 置き直しただけで反対側へ移りうるので、1枚では決めさせない。\r\n  STAGE_UNSTABLE_MARGIN: 5.0,\r\n\r\n  STAGE_MARGIN_EARLY: 8.0,\r\n  STAGE_MARGIN_LATE: 4.0,\r\n  MIN_GRAIN_COUNT: 60,\r\n\r\n  // これを下回ったら、黄化率そのものを出さない。\r\n  //\r\n  // 【なぜ要るか】\r\n  // 以前は少なすぎる側だけ黄色い注意で、判定は堂々と出していた。\r\n  // 粒が1個だけ取れた写真（手やバケツが写り込んだ等）では\r\n  // その1個が黄色なら黄化率100%となり、「刈り遅れ／至急刈取ってください」\r\n  // と表示された。多すぎる側は赤い警告で止めているのに、片側だけ素通りだった。\r\n  // 20粒は、1粒あたりの重みが5ポイントになる線。適期の帯は5ポイント幅しかない。\r\n  TRUST_MIN_GRAIN_COUNT: 20,\r\n\r\n  // 同じ穂を置き直したときに、置き方だけで動く幅の上限（ポイント）。\r\n  //\r\n  // 実測 2026-08-19：同じ穂4枚で 87.8 / 88.1 / 91.3 / 92.6% と 4.8 動いた。\r\n  // これを超える割れ方は、置き方では説明がつかない別の原因（籾の重なり、\r\n  // 穂元の写り漏れ）とみなす。以前は STAGE_UNSTABLE_MARGIN を借りて\r\n  // その2倍（10ポイント）を使っており、実測の倍の幅まで見逃していた。\r\n  PANICLE_SPREAD_MAX: 5.0,\r\n  MAX_EXCLUDE_RATIO: 0.25,\r\n\r\n  // --- 判定を信用してよいかの確認（2026-08-11 追加） ---\r\n  //\r\n  // 【なぜ必要か — 実測にもとづく】\r\n  // 260810 の写真で、2穂の写真から 1090 粒が検出され、葉が丸ごと数百粒として\r\n  // 数えられ、色相 217°（青）の領域まで籾として通っていた。それでも警告は\r\n  // 1つも出なかった。当時の確認は「60粒未満なら警告」という下限だけで、\r\n  // 上限も、明らかにおかしい半径も、籾でない色も見ていなかったため。\r\n  // 誤った数値を無警告で出すのが、この道具でいちばん危険な壊れ方になる。\r\n\r\n  // 1穂の籾数としてありえない上限。品種により1穂は60〜200粒程度で、\r\n  // 撮影手順も「1穂ずつ」としている。2穂分を超えたら撮り方か分割を疑う。\r\n  MAX_GRAIN_COUNT: 300,\r\n\r\n  // 推定した粒半径が作業解像度の長辺に対してこの比を下回ったら警告する。\r\n  // WORK_MAX_EDGE=1600 のとき 6.2px。\r\n  //\r\n  // ★暫定値★ 手元の写真8枚で決めた値で、統計的な裏付けは無い。\r\n  // RADIUS_CORRECTION=1.0 での推定半径は、目視の実寸と合う5枚が 8.0〜12.0px、\r\n  // 分割が壊れた2枚が 5.0〜5.1px だった。その間を取っている。\r\n  //\r\n  // 【なぜ「推定半径と実測面積の食い違い」で検出しないのか】\r\n  // それを試したが分離できなかった。分割が壊れると、半径が小さくなる →\r\n  // 種の窓も小さくなる → 切り出される粒も小さくなる、と系全体が一貫して\r\n  // 縮むため、内部の整合性は保たれたまま答えだけが間違う\r\n  // （100214 は実測/推定＝1.06 と整合して見えるが、半径は5.0で実寸7.5）。\r\n  // 自己整合性ではなく、解像度に対する絶対値で見るしかない。\r\n  MIN_GRAIN_RADIUS_WARN_RATIO: 1 / 260,\r\n\r\n  // 1粒の画素のうち、籾でありうる色（緑・黄緑・黄・褐変）が占める割合。\r\n  // これを下回る粒は「籾ではない」とみなして母数から外す。\r\n  //\r\n  // 実測では、この値の分布は 0.0 と 1.0 の二極に分かれていて中間がほとんど無い\r\n  // （8枚すべてで \u003c0.3 と \u003c0.7 の該当率が同じ）。しきい値の取り方は結果を\r\n  // 左右しないので、真ん中を取っている。良好な写真では該当ゼロ。\r\n  GRAIN_MIN_CLASSIFIED: 0.5,\r\n\r\n  // 籾でない色の粒がこの割合を超えたら、写り込みを疑って警告する。\r\n  MAX_IMPLAUSIBLE_RATIO: 0.1,\r\n\r\n  // 粒として切り出した範囲に、籾でありえない色相（青い影）がこの割合を\r\n  // 超えて混ざっていたら警告する。直射日光で撮ったことの検出になる。\r\n  //\r\n  // ★暫定値★ 手元の写真8枚で決めた値。ただし分離はきれいだった。\r\n  //   明るい日陰の4枚 … 0.0%\r\n  //   直射日光の4枚   … 3.0% / 11.2% / 21.0% / 27.4%\r\n  // 影は前景に入って粒の輪郭と半径推定を内側から狂わせるので、\r\n  // 粒数が一見それらしくても数値は当てにならない。\r\n  SHADOW_WARN_RATIO: 0.10,\r\n  AUTO_GREEN_FULL: 0.55,\r\n\r\n  // 1粒の中の緑がこの割合以上なら帯緑（＝黄化に数えない）。\r\n  //\r\n  // 【0.10 から 0.25 へ — 手数えとの答え合わせにもとづく変更 2026-08-12】\r\n  // 0.10 に根拠は無く、前任の実装から引き継いだ値だった。\r\n  // 260812 の穂3本を、写真を撮ってから籾を外して手で数え、突き合わせた。\r\n  //\r\n  //   写真   手数え     0.10のとき   0.25のとき\r\n  //   1      58.6%      46.2%        60.0%   ← 粒数 145対143 で最も信頼できる\r\n  //   2      50.8%      49.5%        60.0%   ← 籾の3割が穂の陰で写っていない\r\n  //   3      74.5%      51.7%        73.2%\r\n  //\r\n  // 0.10 では平均12.2ポイント低く出ていた。0.25 にすると、粒数が合っている\r\n  // 写真1と写真3で誤差 +1.4 / -1.3 ポイントに収まる。\r\n  //\r\n  // 写真2だけ 9ポイント高く出るが、この写真は籾が穂の陰に隠れて\r\n  // 130粒中91粒しか写っておらず、写っている籾のほうが黄化が進んでいた\r\n  // （隠れるのは穂の内側の未熟な籾）。写真そのものが条件を外している。\r\n  //\r\n  // ★この値は「較正に使った」ものであって「検証済み」ではない★\r\n  // 上の3本は値を決めるのに使ってしまったので、精度の裏付けには使えない。\r\n  // 別の穂で、できれば黄化率80〜90%のもので、改めて答え合わせが要る。\r\n  // 判断が変わるのは85%付近だけで、上の3本は50〜75%とその手前にある。\r\n  AUTO_GREENBELT_MIN: 0.25,\r\n\r\n  AUTO_BROWN_MIN: 0.45,\r\n  GRAIN_ASPECT_GUESS: 2.5,\r\n  MIN_GRAIN_RADIUS_PX: 2.0,\r\n  PAPER_BOX_RATIO: 6.0,\r\n  PAPER_LOCAL_MIN_PX: 50,\r\n  ELONGATION_CAP: 20.0,\r\n  BROWN_WARN_RATIO: 0.2,\r\n  WB_CLIP_VALUE: 250,\r\n};\r\n\r\n// 色相などのしきい値（既存HTMLの DEFAULT_HSV と同じ値）\r\nconst GRAIN_HSV = {\r\n  greenMin: 75.0,\r\n  greenMax: 165.0,\r\n  ygMin: 47.0,\r\n  ygMax: 75.0,\r\n  yellowMin: 30.0,\r\n  yellowMax: 47.0,\r\n  brownMin: 12.0,\r\n  brownMax: 30.0,\r\n  bgWhiteS: 0.15,\r\n  bgWhiteV: 0.8,\r\n  bgDarkV: 0.2,\r\n  minSat: 0.12,\r\n};\r\n\r\n// 特徴量の並び。model.coef の列の順序と対応する。\r\nconst GRAIN_FEATURE_NAMES = [\r\n  'L_mean', 'L_p25', 'L_p75', 'a_mean',\r\n  'a_p25', 'a_p75', 'b_mean', 'b_p25',\r\n  'b_p75', 'chroma_mean', 'hue_mean', 'hue_p25',\r\n  'hue_p75', 'sat_mean', 'val_mean', 'frac_green',\r\n  'frac_yg', 'frac_yellow', 'frac_brown', 'b_std',\r\n  'a_std', 'L_std', 'L_minus_paper', 'L_ratio_paper',\r\n  'area_rel', 'elongation', 'fill',\r\n];\r\n\r\n// 籾のラベル\r\nconst GRAIN_LABELS = ['yellow', 'greenbelt', 'green', 'brown', 'exclude'];\r\nconst GRAIN_CLASS_LABELS = ['yellow', 'greenbelt', 'green', 'brown'];\r\nconst GRAIN_LABEL_JA = {\r\n  yellow: '黄化',\r\n  greenbelt: '帯緑',\r\n  green: '緑',\r\n  brown: '褐変',\r\n  exclude: '除外',\r\n};\r\nconst GRAIN_LABEL_COLORS = {\r\n  yellow: [232, 178, 32],\r\n  greenbelt: [168, 192, 40],\r\n  green: [46, 160, 60],\r\n  brown: [150, 92, 40],\r\n  exclude: [120, 120, 120],\r\n};\r\n\r\n/* ===== js: analysis/grain-imgproc.js ===== */\r\n// 粒カウント方式で使う画像処理の土台\r\n//\r\n// Python 側（src/kariire/）と同じ結果を出す必要がある。\r\n// Python は scipy.ndimage の関数を使っているので、ここでは\r\n// その挙動（境界の扱い・カーネルの作り方）まで合わせて実装する。\r\n// ずれていないかは tests/test_parity.py が検証する。\r\n//\r\n// ここに置くのは、どれも「画素の並びをどう扱うか」だけの汎用処理で、\r\n// 稲や籾の話は一切入れない。籾の話は grain-segment.js 以降に置く。\r\n\r\n/**\r\n * 8近傍の連結成分ラベリング。\r\n * scipy.ndimage.label(mask, structure=ones((3,3))) に対応する。\r\n *\r\n * 走査順（上から下、左から右）で見つけた順に1から番号を振る。\r\n * Python 側も同じ順序で番号を振るので、ラベル番号まで一致する。\r\n *\r\n * @param {Uint8Array} mask 0/1 の配列（長さ w*h）\r\n * @returns {{labels: Int32Array, count: number}}\r\n */\r\nfunction labelComponents(mask, w, h) {\r\n  const labels = new Int32Array(w * h);\r\n  const stack = new Int32Array(w * h);\r\n  let count = 0;\r\n\r\n  for (let start = 0; start \u003c mask.length; start++) {\r\n    if (!mask[start] || labels[start] !== 0) continue;\r\n\r\n    count++;\r\n    let sp = 0;\r\n    stack[sp++] = start;\r\n    labels[start] = count;\r\n\r\n    // 再帰だと粒の数だけ深くなってスタックが溢れるので、自前の配列で回す\r\n    while (sp > 0) {\r\n      const p = stack[--sp];\r\n      const py = (p / w) | 0;\r\n      const px = p - py * w;\r\n\r\n      for (let dy = -1; dy \u003c= 1; dy++) {\r\n        const ny = py + dy;\r\n        if (ny \u003c 0 || ny >= h) continue;\r\n        for (let dx = -1; dx \u003c= 1; dx++) {\r\n          const nx = px + dx;\r\n          if (nx \u003c 0 || nx >= w) continue;\r\n          const q = ny * w + nx;\r\n          if (mask[q] && labels[q] === 0) {\r\n            labels[q] = count;\r\n            stack[sp++] = q;\r\n          }\r\n        }\r\n      }\r\n    }\r\n  }\r\n  return { labels: labels, count: count };\r\n}\r\n\r\n/** 各ラベルの画素数を数える。戻り値の 0 番は背景。 */\r\nfunction labelSizes(labels, count) {\r\n  const sizes = new Int32Array(count + 1);\r\n  for (let i = 0; i \u003c labels.length; i++) sizes[labels[i]]++;\r\n  return sizes;\r\n}\r\n\r\n// 距離変換で「背景が無い」ことを表す値。\r\n// Infinity を入れると差の計算で NaN が出るので、十分大きい有限値を使う。\r\nconst EDT_FAR = 1e20;\r\n\r\n/**\r\n * 1次元の距離変換（Felzenszwalb & Huttenlocher の下側包絡線法）。\r\n * 各点について「f(v) + (q-v)^2 を最小にする v」を求める。\r\n *\r\n * @param {Float64Array} f 入力（長さ n）\r\n * @param {Float64Array} d 出力の最小値\r\n * @param {Int32Array} arg 出力の最小を与えた位置\r\n */\r\nfunction edt1d(f, n, d, arg, v, z) {\r\n  let k = 0;\r\n  v[0] = 0;\r\n  z[0] = -EDT_FAR;\r\n  z[1] = EDT_FAR;\r\n\r\n  for (let q = 1; q \u003c n; q++) {\r\n    let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\r\n    while (s \u003c= z[k]) {\r\n      k--;\r\n      s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\r\n    }\r\n    k++;\r\n    v[k] = q;\r\n    z[k] = s;\r\n    z[k + 1] = EDT_FAR;\r\n  }\r\n\r\n  k = 0;\r\n  for (let q = 0; q \u003c n; q++) {\r\n    while (z[k + 1] \u003c q) k++;\r\n    const dv = q - v[k];\r\n    d[q] = dv * dv + f[v[k]];\r\n    arg[q] = v[k];\r\n  }\r\n}\r\n\r\n/**\r\n * 正確なユークリッド距離変換。\r\n * scipy.ndimage.distance_transform_edt に対応する。\r\n *\r\n * mask が 1 の画素について、最も近い 0 の画素までの距離を返す。\r\n * 近似ではなく厳密解なので、Python と同じ値になる。\r\n *\r\n * @param {Uint8Array} mask 0/1 の配列\r\n * @param {boolean} withIndices 最も近い 0 画素の位置も返すか\r\n * @returns {{dist: Float64Array, nearest: Int32Array|null}}\r\n */\r\nfunction distanceTransform(mask, w, h, withIndices) {\r\n  const n = w * h;\r\n  const sq = new Float64Array(n);      // 二乗距離\r\n  const argY = new Int32Array(n);      // 縦方向で最小を与えた y\r\n\r\n  const maxLen = Math.max(w, h);\r\n  const f = new Float64Array(maxLen);\r\n  const d = new Float64Array(maxLen);\r\n  const arg = new Int32Array(maxLen);\r\n  const v = new Int32Array(maxLen);\r\n  const z = new Float64Array(maxLen + 1);\r\n\r\n  // --- 縦方向 ---\r\n  for (let x = 0; x \u003c w; x++) {\r\n    for (let y = 0; y \u003c h; y++) f[y] = mask[y * w + x] ? EDT_FAR : 0;\r\n    edt1d(f, h, d, arg, v, z);\r\n    for (let y = 0; y \u003c h; y++) {\r\n      sq[y * w + x] = d[y];\r\n      argY[y * w + x] = arg[y];\r\n    }\r\n  }\r\n\r\n  // --- 横方向 ---\r\n  const nearest = withIndices ? new Int32Array(n) : null;\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) f[x] = sq[row + x];\r\n    edt1d(f, w, d, arg, v, z);\r\n    for (let x = 0; x \u003c w; x++) {\r\n      sq[row + x] = d[x];\r\n      if (nearest) {\r\n        // 横方向で選ばれた列 arg[x] の、縦方向で選ばれた行を引き直す\r\n        const sx = arg[x];\r\n        nearest[row + x] = argY[row + sx] * w + sx;\r\n      }\r\n    }\r\n  }\r\n\r\n  const dist = new Float64Array(n);\r\n  for (let i = 0; i \u003c n; i++) dist[i] = Math.sqrt(sq[i]);\r\n  return { dist: dist, nearest: nearest };\r\n}\r\n\r\n/**\r\n * 境界の折り返し（scipy の mode='reflect'）。\r\n * 端の画素を含めて折り返す: (d c b a | a b c d | d c b a)\r\n */\r\nfunction reflectIndex(i, n) {\r\n  if (n === 1) return 0;\r\n  while (i \u003c 0 || i >= n) {\r\n    if (i \u003c 0) i = -i - 1;\r\n    if (i >= n) i = 2 * n - i - 1;\r\n  }\r\n  return i;\r\n}\r\n\r\n/**\r\n * ガウス平滑化。scipy.ndimage.gaussian_filter（truncate=4.0, mode='reflect'）に対応。\r\n * 縦横に分けてかける（2次元のガウスは1次元の掛け合わせで表せるため）。\r\n */\r\nfunction gaussianBlur(src, w, h, sigma) {\r\n  const lw = Math.floor(4.0 * sigma + 0.5);\r\n  const size = 2 * lw + 1;\r\n  const kernel = new Float64Array(size);\r\n  let sum = 0;\r\n  for (let i = 0; i \u003c size; i++) {\r\n    const x = i - lw;\r\n    kernel[i] = Math.exp(-0.5 * (x * x) / (sigma * sigma));\r\n    sum += kernel[i];\r\n  }\r\n  for (let i = 0; i \u003c size; i++) kernel[i] /= sum;\r\n\r\n  const tmp = new Float64Array(w * h);\r\n  const out = new Float64Array(w * h);\r\n\r\n  // 横方向\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      let acc = 0;\r\n      for (let i = 0; i \u003c size; i++) {\r\n        acc += kernel[i] * src[row + reflectIndex(x + i - lw, w)];\r\n      }\r\n      tmp[row + x] = acc;\r\n    }\r\n  }\r\n  // 縦方向\r\n  for (let x = 0; x \u003c w; x++) {\r\n    for (let y = 0; y \u003c h; y++) {\r\n      let acc = 0;\r\n      for (let i = 0; i \u003c size; i++) {\r\n        acc += kernel[i] * tmp[reflectIndex(y + i - lw, h) * w + x];\r\n      }\r\n      out[y * w + x] = acc;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * 最大値フィルタ。scipy.ndimage.maximum_filter（正方形・mode='reflect'）に対応。\r\n * size は奇数であること（中心を持たせるため）。\r\n */\r\nfunction maximumFilter(src, w, h, size) {\r\n  const r = (size - 1) >> 1;\r\n  const tmp = new Float64Array(w * h);\r\n  const out = new Float64Array(w * h);\r\n\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      let m = -Infinity;\r\n      for (let i = -r; i \u003c= r; i++) {\r\n        const v = src[row + reflectIndex(x + i, w)];\r\n        if (v > m) m = v;\r\n      }\r\n      tmp[row + x] = m;\r\n    }\r\n  }\r\n  for (let x = 0; x \u003c w; x++) {\r\n    for (let y = 0; y \u003c h; y++) {\r\n      let m = -Infinity;\r\n      for (let i = -r; i \u003c= r; i++) {\r\n        const v = tmp[reflectIndex(y + i, h) * w + x];\r\n        if (v > m) m = v;\r\n      }\r\n      out[y * w + x] = m;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * パーセンタイル。numpy.percentile の既定（線形補間）に合わせる。\r\n * @param {number[]|Float64Array} values 並べ替えてよい配列\r\n */\r\nfunction percentile(values, q) {\r\n  const a = Float64Array.from(values);\r\n  a.sort();\r\n  const n = a.length;\r\n  if (n === 0) return NaN;\r\n  if (n === 1) return a[0];\r\n\r\n  const pos = (q / 100) * (n - 1);\r\n  const lo = Math.floor(pos);\r\n  const hi = Math.ceil(pos);\r\n  if (lo === hi) return a[lo];\r\n  return a[lo] + (a[hi] - a[lo]) * (pos - lo);\r\n}\r\n\r\nconst median = (values) => percentile(values, 50);\r\n\r\n/**\r\n * 凸包の頂点を求める（Andrew の monotone chain）。\r\n * 頂点の並ぶ向きは、符号付き面積が正になる側にそろえる。\r\n * @param {Array\u003c[number,number]>} points [x, y] の配列\r\n */\r\nfunction convexHull(points) {\r\n  if (points.length \u003c= 2) return points.slice();\r\n\r\n  const pts = points.slice().sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));\r\n  const cross = (o, a, b) =>\r\n    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);\r\n\r\n  const lower = [];\r\n  for (const p of pts) {\r\n    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) \u003c= 0) {\r\n      lower.pop();\r\n    }\r\n    lower.push(p);\r\n  }\r\n  const upper = [];\r\n  for (let i = pts.length - 1; i >= 0; i--) {\r\n    const p = pts[i];\r\n    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) \u003c= 0) {\r\n      upper.pop();\r\n    }\r\n    upper.push(p);\r\n  }\r\n\r\n  const hull = lower.slice(0, -1).concat(upper.slice(0, -1));\r\n\r\n  // 向きをそろえる。逆だと内外判定の符号が反転して内側が空になる。\r\n  let area2 = 0;\r\n  for (let i = 0; i \u003c hull.length; i++) {\r\n    const [x1, y1] = hull[i];\r\n    const [x2, y2] = hull[(i + 1) % hull.length];\r\n    area2 += x1 * y2 - x2 * y1;\r\n  }\r\n  if (area2 \u003c 0) hull.reverse();\r\n  return hull;\r\n}\r\n\r\n/** 凸包の内側を塗りつぶしたマスクを作る。 */\r\nfunction fillHull(hull, w, h) {\r\n  const mask = new Uint8Array(w * h);\r\n  if (hull.length \u003c 3) {\r\n    mask.fill(1);\r\n    return mask;\r\n  }\r\n  for (let y = 0; y \u003c h; y++) {\r\n    const row = y * w;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      let inside = true;\r\n      for (let i = 0; i \u003c hull.length; i++) {\r\n        const [x1, y1] = hull[i];\r\n        const [x2, y2] = hull[(i + 1) % hull.length];\r\n        if ((x2 - x1) * (y - y1) - (y2 - y1) * (x - x1) \u003c 0) {\r\n          inside = false;\r\n          break;\r\n        }\r\n      }\r\n      mask[row + x] = inside ? 1 : 0;\r\n    }\r\n  }\r\n  return mask;\r\n}\r\n\r\n/** 面積が min 未満の連結成分を取り除く。 */\r\nfunction dropSmall(mask, w, h, minArea) {\r\n  if (minArea \u003c= 1) return mask;\r\n  const res = labelComponents(mask, w, h);\r\n  const sizes = labelSizes(res.labels, res.count);\r\n  const out = new Uint8Array(mask.length);\r\n  for (let i = 0; i \u003c mask.length; i++) {\r\n    const l = res.labels[i];\r\n    out[i] = l > 0 && sizes[l] >= minArea ? 1 : 0;\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * 偶数丸め（銀行家丸め）。Python の round() と同じ結果になる。\r\n *\r\n * Math.round() は .5 を必ず切り上げるが、Python は .5 のとき偶数側へ丸める。\r\n * 作業解像度を決めるところで両者がずれると、画像の幅が1px変わり、\r\n * 縮小の格子ごと変わって最終的な粒数まで変わってしまう。\r\n */\r\nfunction roundHalfEven(x) {\r\n  const f = Math.floor(x);\r\n  const diff = x - f;\r\n  if (diff > 0.5) return f + 1;\r\n  if (diff \u003c 0.5) return f;\r\n  return f % 2 === 0 ? f : f + 1;\r\n}\r\n\r\n/**\r\n * 1次元の面積平均の重みを作る。\r\n * 出力の j 番目は入力の [j*s, (j+1)*s) を覆う（s = srcN / dstN）。\r\n * @returns {Array\u003c{start:number, w:Float64Array}>}\r\n */\r\nfunction areaWeights(srcN, dstN) {\r\n  const s = srcN / dstN;\r\n  const rows = [];\r\n  for (let j = 0; j \u003c dstN; j++) {\r\n    const lo = j * s;\r\n    const hi = (j + 1) * s;\r\n    const k0 = Math.floor(lo);\r\n    const k1 = Math.min(srcN, Math.ceil(hi));\r\n    const w = new Float64Array(Math.max(0, k1 - k0));\r\n    let total = 0;\r\n    for (let k = k0; k \u003c k1; k++) {\r\n      const overlap = Math.min(hi, k + 1) - Math.max(lo, k);\r\n      const val = overlap > 0 ? overlap : 0;\r\n      w[k - k0] = val;\r\n      total += val;\r\n    }\r\n    if (total > 0) for (let i = 0; i \u003c w.length; i++) w[i] /= total;\r\n    rows.push({ start: k0, w: w });\r\n  }\r\n  return rows;\r\n}\r\n\r\n/**\r\n * 面積平均で縮小する。ブラウザ任せの drawImage は使わない。\r\n *\r\n * 【自前で縮小する理由】\r\n * 縮小の方法はブラウザと Pillow で違う。同じ写真なのに検出粒数が\r\n * 156粒と150粒、籾黄化率が95.5%と94.7%に分かれた。判断の境目が85%である以上、\r\n * 「PCで検証した値」と「このアプリが出す値」がずれるのは困る。\r\n * Python 側（src/kariire/resize.py）と同じ計算をここで行う。\r\n *\r\n * 横 → 縦 の順に掛ける。途中は倍精度のまま持ち、最後に一度だけ丸める。\r\n *\r\n * @param {ImageData} src\r\n * @returns {ImageData}\r\n */\r\nfunction downscaleArea(src, dstW, dstH) {\r\n  const sw = src.width, sh = src.height;\r\n  if (sw === dstW && sh === dstH) {\r\n    const same = new ImageData(dstW, dstH);\r\n    same.data.set(src.data);\r\n    return same;\r\n  }\r\n  // 元画像がすでに手元にあるので、行の読み出しは切り出すだけでよい\r\n  return downscaleAreaRows(\r\n    (y0, y1) => src.data.subarray(y0 * sw * 4, y1 * sw * 4), sw, sh, dstW, dstH);\r\n}\r\n\r\n/** 一度に読み込む元画像の行数。窓（出力1行が必要とする元の行数）より十分大きくとる。 */\r\nconst DOWNSCALE_BAND = 128;\r\n\r\n/**\r\n * 面積平均で縮小する（元画像を帯ごとに読みながら進める版）。\r\n *\r\n * 【なぜ全部を一度に持たないのか — スマホ対策】\r\n * 以前は「横方向の結果」を元画像の高さぶん一度に確保していた。\r\n * 4032×2268 の写真では sh×dstW×3 の倍精度配列で 49MB になり、\r\n * 原寸の ImageData 36.6MB とキャンバス 36.6MB を足すとピークで約125MB。\r\n * スマホのタブが落ちる領域だった。\r\n *\r\n * 縦方向は上から順に進み、出力1行が必要とする元の行は数行しかない。\r\n * だから元画像を帯（128行）ずつ読み、その帯の横方向だけを持てば足りる。\r\n * 計算の順序も丸め方も変えていないので、結果は1バイトも変わらない。\r\n *\r\n * @param {(y0:number, y1:number) => Uint8ClampedArray} readRows\r\n *        元画像の行 [y0, y1) を RGBA で返す。呼ばれる順序は上から下。\r\n */\r\nfunction downscaleAreaRows(readRows, sw, sh, dstW, dstH) {\r\n  const out = new ImageData(dstW, dstH);\r\n  const wx = areaWeights(sw, dstW);\r\n  const wy = areaWeights(sh, dstH);\r\n\r\n  // いま手元にある帯（元画像の行 bandY0 以降 bandN 行ぶんの横方向の結果）\r\n  let bandY0 = -1;\r\n  let bandN = 0;\r\n  const band = new Float64Array(DOWNSCALE_BAND * dstW * 3);\r\n\r\n  /** 出力行 i が必要とする元の行がすべて帯に入るようにする */\r\n  const ensureBand = (need0, need1) => {\r\n    if (bandY0 >= 0 && need0 >= bandY0 && need1 \u003c= bandY0 + bandN) return;\r\n    bandY0 = need0;\r\n    bandN = Math.min(DOWNSCALE_BAND, sh - bandY0);\r\n    const rows = readRows(bandY0, bandY0 + bandN);\r\n    for (let y = 0; y \u003c bandN; y++) {\r\n      const srcRow = y * sw * 4;\r\n      const dstRow = y * dstW * 3;\r\n      for (let j = 0; j \u003c dstW; j++) {\r\n        const { start, w } = wx[j];\r\n        let r = 0, g = 0, b = 0;\r\n        for (let i = 0; i \u003c w.length; i++) {\r\n          const p = srcRow + (start + i) * 4;\r\n          r += rows[p] * w[i];\r\n          g += rows[p + 1] * w[i];\r\n          b += rows[p + 2] * w[i];\r\n        }\r\n        band[dstRow + j * 3] = r;\r\n        band[dstRow + j * 3 + 1] = g;\r\n        band[dstRow + j * 3 + 2] = b;\r\n      }\r\n    }\r\n  };\r\n\r\n  for (let i = 0; i \u003c dstH; i++) {\r\n    const { start, w } = wy[i];\r\n    ensureBand(start, start + w.length);\r\n    for (let j = 0; j \u003c dstW; j++) {\r\n      let r = 0, g = 0, b = 0;\r\n      for (let k = 0; k \u003c w.length; k++) {\r\n        const p = (start + k - bandY0) * dstW * 3 + j * 3;\r\n        r += band[p] * w[k];\r\n        g += band[p + 1] * w[k];\r\n        b += band[p + 2] * w[k];\r\n      }\r\n      const q = (i * dstW + j) * 4;\r\n      // Uint8ClampedArray への代入は偶数丸め＋0〜255への収め。\r\n      // Python 側の np.rint + clip と同じ結果になる。\r\n      out.data[q] = r;\r\n      out.data[q + 1] = g;\r\n      out.data[q + 2] = b;\r\n      out.data[q + 3] = 255;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/** 積分画像（累積和）。任意の矩形の合計を4回の足し引きで取り出せるようにする。 */\r\nfunction integralImage(src, w, h) {\r\n  const iw = w + 1;\r\n  const out = new Float64Array(iw * (h + 1));\r\n  for (let y = 0; y \u003c h; y++) {\r\n    let rowSum = 0;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      rowSum += src[y * w + x];\r\n      out[(y + 1) * iw + (x + 1)] = out[y * iw + (x + 1)] + rowSum;\r\n    }\r\n  }\r\n  return out;\r\n}\r\n\r\n/** 積分画像から矩形 [x0,x1) x [y0,y1) の合計を取り出す。 */\r\nfunction boxSum(integral, iw, x0, y0, x1, y1) {\r\n  return (\r\n    integral[y1 * iw + x1] -\r\n    integral[y0 * iw + x1] -\r\n    integral[y1 * iw + x0] +\r\n    integral[y0 * iw + x0]\r\n  );\r\n}\r\n\r\n/* ===== js: analysis/grain-segment.js ===== */\r\n// 籾を1粒ずつ切り出す（JS版）\r\n//\r\n// もとは src/kariire/ の colorspace.py / paper.py / segment.py からの移植だったが、\r\n// 2026-08-11 以降このファイルが原本になった。Python 側は追随していないので、\r\n// tests/test_parity.py が通ることを、このファイルの正しさの根拠にしないこと\r\n// （あちらは死んだコピーの export/ を読んでいる）。\r\n//\r\n// 【なぜ学習を使わないのか】\r\n// 撮影条件（白紙の上・真上から）が決まっているので、切り出しは色と形の\r\n// 規則で確実にできる。学習を使うのは「切り出した1粒が黄化しているか」の\r\n// 判定だけ（grain-model.js）。\r\n\r\n/**\r\n * RGBA の画素配列から HSV を作る。\r\n * 既存の rgbToHsv と同じ式。h は 0〜360、s と v は 0〜1。\r\n *\r\n * 【Float64Array を使う理由】\r\n * Python 側と同じ答えを出すため。JS には単精度の演算が無く倍精度で計算されるので、\r\n * Python 側も倍精度にそろえてある。単精度で持つと、彩度がしきい値ちょうど付近の\r\n * 画素が数個入れ替わり、前景マスク → 粒半径 → 種の位置 と波及して\r\n * 最終的な黄化率がずれる（実測で0.86ポイントの食い違いが出た）。\r\n */\r\nfunction grainRgbToHsv(data, n) {\r\n  const hh = new Float64Array(n);\r\n  const ss = new Float64Array(n);\r\n  const vv = new Float64Array(n);\r\n\r\n  for (let i = 0, p = 0; i \u003c n; i++, p += 4) {\r\n    const r = data[p] / 255, g = data[p + 1] / 255, b = data[p + 2] / 255;\r\n    const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);\r\n    const mn = r \u003c g ? (r \u003c b ? r : b) : (g \u003c b ? g : b);\r\n    const d = mx - mn;\r\n\r\n    let h = 0;\r\n    if (d !== 0) {\r\n      if (mx === r) h = 60 * (((g - b) / d) % 6);\r\n      else if (mx === g) h = 60 * ((b - r) / d + 2);\r\n      else h = 60 * ((r - g) / d + 4);\r\n      if (h \u003c 0) h += 360;\r\n    }\r\n    hh[i] = h;\r\n    ss[i] = mx === 0 ? 0 : d / mx;\r\n    vv[i] = mx;\r\n  }\r\n  return { h: hh, s: ss, v: vv };\r\n}\r\n\r\n/**\r\n * RGBA の画素配列から CIE L*a*b* を作る（D65）。\r\n *\r\n * 籾の「黄色さ」は b*（青―黄の軸）に、「緑らしさ」は a*（緑―赤の軸）に\r\n * ほぼ一直線で対応する。色相の角度より扱いやすいので分類に使う。\r\n */\r\nfunction grainRgbToLab(data, n) {\r\n  // Python 側と同じ答えにするため倍精度で持つ（grainRgbToHsv の説明を参照）\r\n  const LL = new Float64Array(n);\r\n  const AA = new Float64Array(n);\r\n  const BB = new Float64Array(n);\r\n\r\n  const eps = 216 / 24389;\r\n  const kappa = 24389 / 27;\r\n  const finv = (t) => (t > eps ? Math.cbrt(t) : (kappa * t + 16) / 116);\r\n  // sRGB のガンマを外す対応表。画素ごとに pow を呼ぶと遅いため先に作る。\r\n  const lin = new Float64Array(256);\r\n  for (let i = 0; i \u003c 256; i++) {\r\n    const c = i / 255;\r\n    lin[i] = c \u003c= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);\r\n  }\r\n\r\n  for (let i = 0, p = 0; i \u003c n; i++, p += 4) {\r\n    const r = lin[data[p]], g = lin[data[p + 1]], b = lin[data[p + 2]];\r\n\r\n    const x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;\r\n    const y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;\r\n    const z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883;\r\n\r\n    const fx = finv(x), fy = finv(y), fz = finv(z);\r\n    LL[i] = 116 * fy - 16;\r\n    AA[i] = 500 * (fx - fy);\r\n    BB[i] = 200 * (fy - fz);\r\n  }\r\n  return { L: LL, a: AA, b: BB };\r\n}\r\n\r\n/**\r\n * 白紙とみなせる画素のマスク。\r\n *\r\n * 【明度の絶対値で判定しない理由】\r\n * 実際の調査写真は露出が低く、白紙でも明度が0.6程度までしか上がらなかった。\r\n * 既存HTMLの「明度0.80以上が白」では白紙を1画素も拾えず、\r\n * 精度の落ちるグレーワールド補正に退避していた。\r\n * そこで「色が付いていない画素のうち明るい層」を紙とみなす相対判定にする。\r\n */\r\nfunction grainWhiteMask(s, v, n) {\r\n  const mask = new Uint8Array(n);\r\n\r\n  const lowsat = [];\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (s[i] \u003c GRAIN_HSV.bgWhiteS) lowsat.push(v[i]);\r\n  }\r\n  if (lowsat.length === 0) return { mask: mask, threshold: 1.0 };\r\n\r\n  const vRef = percentile(lowsat, GRAIN_PARAMS.WHITE_REF_PCTL);\r\n  const vThr = Math.max(GRAIN_PARAMS.WHITE_ABS_MIN_V, vRef * GRAIN_PARAMS.WHITE_REL_V);\r\n\r\n  for (let i = 0; i \u003c n; i++) {\r\n    mask[i] = s[i] \u003c GRAIN_HSV.bgWhiteS && v[i] >= vThr ? 1 : 0;\r\n  }\r\n  return { mask: mask, threshold: vThr };\r\n}\r\n\r\n/** 白紙を基準にしたホワイトバランスの推定。既存の estimateWhiteBalance と同じ考え方。 */\r\nfunction grainEstimateWB(data, s, v, n) {\r\n  const white = grainWhiteMask(s, v, n).mask;\r\n\r\n  let wr = 0, wg = 0, wb = 0, wc = 0;\r\n  let ar = 0, ag = 0, ab = 0, ac = 0;\r\n  let clippedWhite = 0;   // 白いが明るすぎて色が飛んでいる画素\r\n\r\n  for (let i = 0, p = 0; i \u003c n; i++, p += 4) {\r\n    const r = data[p], g = data[p + 1], b = data[p + 2];\r\n    // 白飛びした画素は元の色が失われているので基準に使わない\r\n    const clipped = r >= GRAIN_PARAMS.WB_CLIP_VALUE\r\n      || g >= GRAIN_PARAMS.WB_CLIP_VALUE || b >= GRAIN_PARAMS.WB_CLIP_VALUE;\r\n    if (white[i]) {\r\n      if (clipped) clippedWhite++;\r\n      else { wr += r; wg += g; wb += b; wc++; }\r\n    }\r\n    if (clipped) continue;\r\n    ar += r; ag += g; ab += b; ac++;\r\n  }\r\n\r\n  // 【紙が写っている割合】と【色の基準に使える割合】を分ける。\r\n  //\r\n  // 以前は「使える割合」しか見ておらず、日向で白紙が真っ白に飛ぶと\r\n  // 割合が0になってグレーワールドに落ちていた。しかもグレーワールドの\r\n  // 平均は飛んだ紙を除くので、実質「穂だけ」の平均になる。\r\n  // そこから作った補正値で紙が白でなくなり、紙の検出まで失敗して\r\n  // 「白い紙を検出できませんでした。白い紙を敷いて撮り直してください」と\r\n  // 出ていた。紙は敷いてある。RGBが248なら正解、250なら総崩れだった。\r\n  const paperRatio = n > 0 ? (wc + clippedWhite) / n : 0;\r\n  const whiteRatio = n > 0 ? wc / n : 0;\r\n\r\n  let mr, mg, mb, method;\r\n  if (whiteRatio >= GRAIN_PARAMS.WB_MIN_WHITE_RATIO) {\r\n    mr = wr / wc; mg = wg / wc; mb = wb / wc;\r\n    method = 'white';\r\n  } else if (paperRatio >= GRAIN_PARAMS.WB_MIN_WHITE_RATIO) {\r\n    // 紙はある。ただ明るすぎて色の基準が取れない。\r\n    // ここでグレーワールドに落ちると穂だけの平均で補正することになるので、\r\n    // 補正しないでおく。飛んだ紙はどのみち白なので、紙の検出は通る。\r\n    return { gains: [1, 1, 1], method: 'clipped', whiteRatio: paperRatio };\r\n  } else if (ac > 0) {\r\n    mr = ar / ac; mg = ag / ac; mb = ab / ac;\r\n    method = 'gray';\r\n  } else {\r\n    return { gains: [1, 1, 1], method: 'none', whiteRatio: whiteRatio };\r\n  }\r\n\r\n  const gray = (mr + mg + mb) / 3;\r\n  const clamp01 = (x) =>\r\n    Math.min(GRAIN_PARAMS.WB_GAIN_MAX, Math.max(GRAIN_PARAMS.WB_GAIN_MIN, x));\r\n  const gains = [\r\n    mr > 1 ? clamp01(gray / mr) : 1,\r\n    mg > 1 ? clamp01(gray / mg) : 1,\r\n    mb > 1 ? clamp01(gray / mb) : 1,\r\n  ];\r\n  return { gains: gains, method: method, whiteRatio: whiteRatio };\r\n}\r\n\r\n/**\r\n * ホワイトバランスを適用した新しい画素配列を返す。\r\n * Uint8ClampedArray への代入は「四捨五入（偶数丸め）してから0〜255に収める」\r\n * 仕様で、Python 側の np.rint + clip と一致する。\r\n */\r\nfunction grainApplyWB(data, gains) {\r\n  const out = new Uint8ClampedArray(data.length);\r\n  if (gains[0] === 1 && gains[1] === 1 && gains[2] === 1) {\r\n    out.set(data);\r\n    return out;\r\n  }\r\n  const lut = [new Uint8ClampedArray(256), new Uint8ClampedArray(256), new Uint8ClampedArray(256)];\r\n  for (let c = 0; c \u003c 3; c++) {\r\n    for (let i = 0; i \u003c 256; i++) lut[c][i] = i * gains[c];\r\n  }\r\n  for (let p = 0; p \u003c data.length; p += 4) {\r\n    out[p] = lut[0][data[p]];\r\n    out[p + 1] = lut[1][data[p + 1]];\r\n    out[p + 2] = lut[2][data[p + 2]];\r\n    out[p + 3] = data[p + 3];\r\n  }\r\n  return out;\r\n}\r\n\r\n/**\r\n * 白紙領域を検出する。見つからなければ画像全体を対象にする。\r\n *\r\n * 【穴埋めではなく凸包を使う理由】\r\n * 穂の茎はフレームの外まで伸びるため、籾の塊が画像の縁とつながり、\r\n * 「穴」として認識されない。穴埋めでは紙の内側を復元できず、\r\n * 紙マスクと籾が排他になって前景が1画素も残らなかった。\r\n * 紙は矩形（凸）なので、白い部分の凸包を取れば正しく囲める。\r\n */\r\nfunction grainDetectPaper(s, v, w, h) {\r\n  const n = w * h;\r\n  const white = grainWhiteMask(s, v, n).mask;\r\n\r\n  let wc = 0;\r\n  for (let i = 0; i \u003c n; i++) wc += white[i];\r\n  const whiteRatio = wc / n;\r\n\r\n  const all = new Uint8Array(n);\r\n  all.fill(1);\r\n\r\n  if (whiteRatio \u003c GRAIN_PARAMS.PAPER_MIN_RATIO) {\r\n    return { mask: all, found: false, whiteRatio: whiteRatio };\r\n  }\r\n\r\n  // 暗幕など「暗い無彩色の背景」を紙と取り違えていないか確認する。\r\n  // 比較相手は画像全体ではなく紙以外にすること。紙が画面の大半を占めると\r\n  // 画像全体の分位点そのものが紙の明るさになり、正しい写真まで弾いてしまう。\r\n  let sumWhite = 0;\r\n  const outsideV = [];\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (white[i]) sumWhite += v[i];\r\n    else outsideV.push(v[i]);\r\n  }\r\n  if (outsideV.length > 0) {\r\n    const meanWhite = sumWhite / wc;\r\n    if (meanWhite \u003c= percentile(outsideV, GRAIN_PARAMS.PAPER_MIN_BRIGHT_PCTL)) {\r\n      return { mask: all, found: false, whiteRatio: whiteRatio };\r\n    }\r\n  }\r\n\r\n  // 紙とみなす連結成分を選ぶ。\r\n  //\r\n  // 【最大の1つだけにしない理由 — 実際に起きた不具合】\r\n  // 紙は1枚でも、その上に載せたものが白い部分を分断する。\r\n  // 穂が画面の上端から下端まで伸びると、紙は左右2つの成分に割れる。\r\n  // 最大の1つだけを紙とみなすと、穂がある側がまるごと解析範囲から外れ、\r\n  // 穂の2割しか数えられなくなる（実測：画像の90%が白なのに、\r\n  // 使われたのはその半分。面積 738,714 と 730,992 のほぼ同じ2つに割れていた）。\r\n  //\r\n  // 大きい成分をまとめて拾い、そのあと凸包で1枚に戻す。\r\n  // 机の上の小さな白い物を巻き込まないよう、小さすぎる成分は捨てる。\r\n  const res = labelComponents(white, w, h);\r\n  if (res.count === 0) return { mask: all, found: false, whiteRatio: whiteRatio };\r\n  const sizes = labelSizes(res.labels, res.count);\r\n  let largest = 1;\r\n  for (let l = 1; l \u003c= res.count; l++) if (sizes[l] > sizes[largest]) largest = l;\r\n\r\n  const minPiece = Math.max(\r\n    sizes[largest] * GRAIN_PARAMS.PAPER_PIECE_MIN_RATIO,\r\n    n * GRAIN_PARAMS.PAPER_PIECE_MIN_AREA,\r\n  );\r\n  const isPaper = new Uint8Array(res.count + 1);\r\n  for (let l = 1; l \u003c= res.count; l++) isPaper[l] = sizes[l] >= minPiece ? 1 : 0;\r\n  isPaper[largest] = 1;   // 最大の1つは必ず含める\r\n\r\n  const comp = new Uint8Array(n);\r\n  for (let i = 0; i \u003c n; i++) comp[i] = isPaper[res.labels[i]] ? 1 : 0;\r\n\r\n  // 凸包の頂点候補は「各行・各列の両端」に必ず含まれる。全画素を渡すより速い。\r\n  const pts = [];\r\n  for (let y = 0; y \u003c h; y++) {\r\n    let first = -1, last = -1;\r\n    for (let x = 0; x \u003c w; x++) {\r\n      if (comp[y * w + x]) { if (first \u003c 0) first = x; last = x; }\r\n    }\r\n    if (first >= 0) { pts.push([first, y]); pts.push([last, y]); }\r\n  }\r\n  for (let x = 0; x \u003c w; x++) {\r\n    let first = -1, last = -1;\r\n    for (let y = 0; y \u003c h; y++) {\r\n      if (comp[y * w + x]) { if (first \u003c 0) first = y; last = y; }\r\n    }\r\n    if (first >= 0) { pts.push([x, first]); pts.push([x, last]); }\r\n  }\r\n\r\n  // 凸包の頂点が3つ未満だと fillHull は画面全体を返す。\r\n  // 以前はそれでも found: true と答えていたので、白い点が散っているだけの\r\n  // 写真（切り株の照り返しなど）で、画面全体を紙とみなし、\r\n  // 「白い紙を検出できませんでした」の警告も出さないまま解析していた。\r\n  const hull = convexHull(pts);\r\n  if (hull.length \u003c 3) return { mask: all, found: false, whiteRatio: whiteRatio };\r\n\r\n  let mask = fillHull(hull, w, h);\r\n\r\n  // 紙の縁は色がにじむので内側に縮める\r\n  if (GRAIN_PARAMS.PAPER_ERODE_PX > 0) {\r\n    const dt = distanceTransform(mask, w, h, false);\r\n    const eroded = new Uint8Array(n);\r\n    for (let i = 0; i \u003c n; i++) {\r\n      eroded[i] = dt.dist[i] >= GRAIN_PARAMS.PAPER_ERODE_PX ? 1 : 0;\r\n    }\r\n    mask = eroded;\r\n  }\r\n  return { mask: mask, found: true, whiteRatio: whiteRatio };\r\n}\r\n\r\n/**\r\n * 粒の半径を推定する。前景の距離変換の分位点を採る。\r\n *\r\n * 【「距離変換の局所最大の中央値」から変えた理由 — 実測 2026-08-11】\r\n * 以前は「局所最大は接触していても粒ごとに1つずつ立つ」という考えで、\r\n * 山の中央値を採っていた。この前提は前景が籾1〜2個ぶんの太さの鎖である\r\n * 間しか成り立たない。2穂が重なって太い塊になると、境界ぎわに小さな山が\r\n * 大量に立ち、その数が粒中心の山を圧倒して中央値を引き下げる。\r\n * 実測では真値16pxの写真で5.1pxと3分の1になり、1粒が5〜10片に割れていた。\r\n *\r\n * 目視で測った8枚の実寸を正解として、13通りの推定方式を採点した結果:\r\n *\r\n *   方式                   平均誤差   最大誤差\r\n *   距離の75%点（採用）        10%       20%\r\n *   距離の80%点               11%       37%\r\n *   山の60%点                 13%       41%\r\n *   距離の70%点               16%       29%\r\n *   山の中央値（以前）          18%       68%\r\n *   面積÷周長                 38%       87%\r\n *   距離の中央値               43%       54%\r\n *\r\n * 70〜80%のあいだは緩やかな山になっていて、75%はその中央にあたる。\r\n * 端ではないので、写真が1枚増えたくらいでは最適点が動かない。\r\n *\r\n * 【なぜ分位点で足りるのか】\r\n * 距離変換の値は「そこに収まる円の半径」なので、粒の内側では粒半径に近づき、\r\n * 縁に行くほど0に近づく。粒がいくつ接触していても、この分布の上側は\r\n * 粒の太さで決まる。かつて95%点で18.2pxと大きく外したのは、\r\n * 分位点が高すぎて塊の中心だけを見ていたため。\r\n */\r\nfunction grainEstimateRadius(dist, foreground, w, h) {\r\n  const fgVals = [];\r\n  for (let i = 0; i \u003c dist.length; i++) {\r\n    if (foreground[i]) fgVals.push(dist[i]);\r\n  }\r\n  if (fgVals.length === 0) return 0;\r\n  return percentile(fgVals, GRAIN_PARAMS.GRAIN_RADIUS_PCTL) * GRAIN_PARAMS.RADIUS_CORRECTION;\r\n}\r\n\r\n/**\r\n * 領域ごとの面積・重心・長短径・充実度・外接矩形をまとめて求める。\r\n * 2次モーメントから「同じ広がりを持つ楕円」を当てはめている。\r\n */\r\nfunction grainRegionProps(labels, count, w, h) {\r\n  const size = count + 1;\r\n  const n = new Float64Array(size);\r\n  const sx = new Float64Array(size);\r\n  const sy = new Float64Array(size);\r\n  const sxx = new Float64Array(size);\r\n  const syy = new Float64Array(size);\r\n  const sxy = new Float64Array(size);\r\n  const x0 = new Float64Array(size).fill(Infinity);\r\n  const x1 = new Float64Array(size).fill(-Infinity);\r\n  const y0 = new Float64Array(size).fill(Infinity);\r\n  const y1 = new Float64Array(size).fill(-Infinity);\r\n\r\n  for (let y = 0; y \u003c h; y++) {\r\n    for (let x = 0; x \u003c w; x++) {\r\n      const l = labels[y * w + x];\r\n      if (l \u003c= 0) continue;\r\n      n[l]++;\r\n      sx[l] += x; sy[l] += y;\r\n      sxx[l] += x * x; syy[l] += y * y; sxy[l] += x * y;\r\n      if (x \u003c x0[l]) x0[l] = x;\r\n      if (x > x1[l]) x1[l] = x;\r\n      if (y \u003c y0[l]) y0[l] = y;\r\n      if (y > y1[l]) y1[l] = y;\r\n    }\r\n  }\r\n\r\n  const props = {};\r\n  for (let l = 1; l \u003c size; l++) {\r\n    const area = n[l];\r\n    if (area \u003c= 0) continue;\r\n    const cx = sx[l] / area;\r\n    const cy = sy[l] / area;\r\n    const cxx = sxx[l] / area - cx * cx;\r\n    const cyy = syy[l] / area - cy * cy;\r\n    const cxy = sxy[l] / area - cx * cy;\r\n\r\n    const mid = (cxx + cyy) / 2;\r\n    const diff = Math.sqrt(Math.max(0, ((cxx - cyy) / 2) ** 2 + cxy * cxy));\r\n    const major = 4 * Math.sqrt(Math.max(0, mid + diff));\r\n    const minor = 4 * Math.sqrt(Math.max(0, mid - diff));\r\n\r\n    const ellipseArea = (Math.PI / 4) * major * minor;\r\n    props[l] = {\r\n      id: l,\r\n      area: area,\r\n      cx: cx,\r\n      cy: cy,\r\n      major: major,\r\n      minor: minor,\r\n      elongation: minor > 1e-6 ? major / minor : Infinity,\r\n      fill: ellipseArea > 1e-6 ? area / ellipseArea : 0,\r\n      bbox: [x0[l], y0[l], x1[l], y1[l]],\r\n    };\r\n  }\r\n  return props;\r\n}\r\n\r\n/**\r\n * 籾を1粒ずつ切り出す。\r\n *\r\n * @param {Float64Array} s 彩度\r\n * @param {Float64Array} v 明度\r\n * @param {Float64Array} lightness L*（粒の種の検出に使う）\r\n * @param {Uint8Array} region 解析対象領域（紙のマスク）\r\n */\r\nfunction grainSegment(s, v, lightness, region, w, h) {\r\n  const n = w * h;\r\n  const warnings = [];\r\n  const empty = {\r\n    labels: new Int32Array(n), props: {}, validIds: [], excludedIds: [],\r\n    radius: 0, foregroundRatio: 0, warnings: warnings,\r\n  };\r\n\r\n  // --- 1. 前景抽出 ---\r\n  // 白紙は彩度がほぼ0、紙に落ちた影も無彩色のまま暗くなるだけ。\r\n  // だから明度ではなく彩度で切ると、影を拾わずに籾だけを取れる。\r\n  let foreground = new Uint8Array(n);\r\n  let fgCount = 0, regionCount = 0;\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (region[i]) regionCount++;\r\n    if (region[i] && s[i] >= GRAIN_PARAMS.GRAIN_MIN_SAT && v[i] >= GRAIN_PARAMS.SHADOW_MAX_V) {\r\n      foreground[i] = 1;\r\n      fgCount++;\r\n    }\r\n  }\r\n  empty.foregroundRatio = regionCount ? fgCount / regionCount : 0;\r\n\r\n  if (fgCount === 0) {\r\n    warnings.push('籾とみなせる部分が見つかりませんでした。');\r\n    return empty;\r\n  }\r\n\r\n  // --- 粒の半径を推定 ---\r\n  let dt = distanceTransform(foreground, w, h, false);\r\n  const radius = grainEstimateRadius(dt.dist, foreground, w, h);\r\n  empty.radius = radius;\r\n\r\n  if (radius \u003c GRAIN_PARAMS.MIN_GRAIN_RADIUS_PX) {\r\n    warnings.push('籾が小さすぎて1粒ずつに分けられません。もっと近づいて撮ってください。');\r\n    return empty;\r\n  }\r\n\r\n  const estArea = Math.PI * radius * radius * GRAIN_PARAMS.GRAIN_ASPECT_GUESS;\r\n  foreground = dropSmall(foreground, w, h, estArea * GRAIN_PARAMS.MIN_BLOB_AREA_RATIO);\r\n\r\n  let any = false;\r\n  for (let i = 0; i \u003c n; i++) if (foreground[i]) { any = true; break; }\r\n  if (!any) {\r\n    warnings.push('籾とみなせる部分が見つかりませんでした。');\r\n    return empty;\r\n  }\r\n\r\n  // --- 2. 茎・枝梗の除去（距離変換によるオープニング） ---\r\n  // 半径 rThin の円が通れない細い部分を消す。円を一度縮めてから\r\n  // 同じ半径だけ広げ直すので、粒は元の太さに戻り、茎だけが消える。\r\n  const rThin = radius * GRAIN_PARAMS.THIN_RADIUS_RATIO;\r\n  dt = distanceTransform(foreground, w, h, false);\r\n\r\n  const core = new Uint8Array(n);\r\n  let coreAny = false;\r\n  for (let i = 0; i \u003c n; i++) {\r\n    if (dt.dist[i] >= rThin) { core[i] = 1; coreAny = true; }\r\n  }\r\n\r\n  let opened;\r\n  if (!coreAny) {\r\n    warnings.push('籾と茎を区別できませんでした。');\r\n    opened = foreground;\r\n  } else {\r\n    const notCore = new Uint8Array(n);\r\n    for (let i = 0; i \u003c n; i++) notCore[i] = core[i] ? 0 : 1;\r\n    const spread = distanceTransform(notCore, w, h, false);\r\n    opened = new Uint8Array(n);\r\n    for (let i = 0; i \u003c n; i++) {\r\n      opened[i] = foreground[i] && spread.dist[i] \u003c= rThin ? 1 : 0;\r\n    }\r\n  }\r\n\r\n  // --- 3. 種（粒の中心）の検出 ---\r\n  // 籾は丸く艶があるため、真上からの光で1粒に1本ずつ明るい稜線ができる。\r\n  // 明るさを粒の大きさに合わせて平滑化してから局所最大を取ると、\r\n  // 粒が密着していても粒ごとに山が分かれる（距離変換ではこれができない）。\r\n  const dt2 = distanceTransform(opened, w, h, false);\r\n\r\n  // 半径が大きく出たときのために頭打ちを設ける（理由は grain-params.js）。\r\n  const rCap = Math.min(radius, GRAIN_PARAMS.SEED_WINDOW_MAX);\r\n  const sigma = Math.max(1.0, rCap * GRAIN_PARAMS.SEED_SMOOTH_RATIO);\r\n  // 変数名を window にしない。グローバルの window を隠してしまい、\r\n  // 「このコードは画面を触っていないか」の検査にも引っかかる。\r\n  let seedWin = Math.max(GRAIN_PARAMS.SEED_MIN_WINDOW, Math.round(rCap * GRAIN_PARAMS.SEED_WINDOW_RATIO));\r\n  if (seedWin % 2 === 0) seedWin += 1;   // 局所最大の窓は中心を持つ奇数にする\r\n\r\n  // 前景の外は0で埋めてから平滑化する。明るい紙を含めると\r\n  // 粒の縁が紙に引っ張られて山がずれる。\r\n  const filled = new Float64Array(n);\r\n  for (let i = 0; i \u003c n; i++) filled[i] = opened[i] ? lightness[i] : 0;\r\n  const smooth = gaussianBlur(filled, w, h, sigma);\r\n  const localMax = maximumFilter(smooth, w, h, seedWin);\r\n\r\n  const minSeedDist = radius * GRAIN_PARAMS.SEED_MIN_DIST_RATIO;\r\n  const peaks = new Uint8Array(n);\r\n  for (let i = 0; i \u003c n; i++) {\r\n    peaks[i] = opened[i] && smooth[i] >= localMax[i] - 1e-6 && dt2.dist[i] >= minSeedDist ? 1 : 0;\r\n  }\r\n\r\n  const seeds = labelComponents(peaks, w, h);\r\n  if (seeds.count === 0) {\r\n    warnings.push('籾を1粒ずつに分けられませんでした。籾が重なっていないか確認してください。');\r\n    return empty;\r\n  }\r\n\r\n  // --- 4. 各画素を最も近い種に割り当てる ---\r\n  // 接触した2粒は、2つの種の垂直二等分線で分かれる。\r\n  const notSeed = new Uint8Array(n);\r\n  for (let i = 0; i \u003c n; i++) notSeed[i] = seeds.labels[i] === 0 ? 1 : 0;\r\n  const assign = distanceTransform(notSeed, w, h, true);\r\n\r\n  const labels = new Int32Array(n);\r\n  for (let i = 0; i \u003c n; i++) {\r\n    labels[i] = opened[i] ? seeds.labels[assign.nearest[i]] : 0;\r\n  }\r\n\r\n  // --- 5. 形の検査 ---\r\n  const props = grainRegionProps(labels, seeds.count, w, h);\r\n  const ids = Object.keys(props).map(Number);\r\n  if (ids.length === 0) {\r\n    warnings.push('籾を1粒ずつに分けられませんでした。');\r\n    return { ...empty, labels: labels };\r\n  }\r\n\r\n  // 面積の基準は、実際に切り出せた粒の中央値を使う。\r\n  // 推定半径からの計算値より、その写真の実物に合う。\r\n  const medianArea = median(ids.map((i) => props[i].area));\r\n\r\n  const validIds = [];\r\n  const excludedIds = [];\r\n  for (const id of ids) {\r\n    const p = props[id];\r\n    let reason = null;\r\n    if (p.area \u003c medianArea * GRAIN_PARAMS.GRAIN_AREA_MIN_RATIO) {\r\n      reason = '小さすぎる';\r\n    } else if (p.area > medianArea * GRAIN_PARAMS.GRAIN_AREA_MAX_RATIO) {\r\n      reason = '大きすぎる（粒が分かれていない可能性）';\r\n    } else if (p.elongation > GRAIN_PARAMS.GRAIN_MAX_ELONGATION) {\r\n      reason = '細長すぎる（茎の残りの可能性）';\r\n    } else if (p.minor \u003c radius * GRAIN_PARAMS.GRAIN_MIN_MINOR_RATIO) {\r\n      reason = '細すぎる（茎・枝梗の可能性）';\r\n    } else if (p.fill \u003c GRAIN_PARAMS.GRAIN_MIN_FILL) {\r\n      reason = '形がいびつ';\r\n    }\r\n    p.excludeReason = reason;\r\n    if (reason === null) validIds.push(id);\r\n    else excludedIds.push(id);\r\n  }\r\n\r\n  return {\r\n    labels: labels,\r\n    props: props,\r\n    validIds: validIds,\r\n    excludedIds: excludedIds,\r\n    radius: radius,\r\n    foregroundRatio: empty.foregroundRatio,\r\n    warnings: warnings,\r\n  };\r\n}\r\n\r\n﻿/* ===== js: analysis/grain-model.js ===== */\r\n// 籾1粒ごとの特徴量・黄化判定・集計（JS版）\r\n//\r\n// src/kariire/ の features.py / labels.py / model.py / ratio.py を移したもの。\r\n//\r\n// 【判定に使う指標】\r\n//     籾黄化率(%) = 黄化した籾数 ÷ 1穂の全籾数 × 100\r\n//     85%以上で刈取適期\r\n//\r\n// 黄化に数えるのは yellow（完全に黄化）と brown（黄化を通り越した褐変）。\r\n// greenbelt（一部でも緑が残る帯緑籾）と green は未熟として数えない。\r\n\r\n// 画素の色分類。既存の PX_* と同じ値だが、同じ名前で二重に宣言できないため\r\n// 接頭辞を変えてある。\r\nconst GPX_GREEN = 1;\r\nconst GPX_YG = 2;\r\nconst GPX_YELLOW = 3;\r\nconst GPX_BROWN = 4;\r\nconst GPX_OTHER = 5;\r\n\r\n/** 色相と彩度から画素を分類する。既存の classifyPixel と同じ判定順序。 */\r\nfunction grainClassifyPixel(h, s) {\r\n  if (s \u003c GRAIN_HSV.minSat) return GPX_OTHER;\r\n  if (h >= GRAIN_HSV.greenMin && h \u003c= GRAIN_HSV.greenMax) return GPX_GREEN;\r\n  if (h >= GRAIN_HSV.ygMin && h \u003c GRAIN_HSV.ygMax) return GPX_YG;\r\n  if (h >= GRAIN_HSV.yellowMin && h \u003c GRAIN_HSV.yellowMax) return GPX_YELLOW;\r\n  if (h >= GRAIN_HSV.brownMin && h \u003c GRAIN_HSV.brownMax) return GPX_BROWN;\r\n  return GPX_OTHER;\r\n}\r\n\r\n/** 母集団標準偏差（numpy の既定と同じ ddof=0）。 */\r\nfunction stdev(values, mean) {\r\n  let acc = 0;\r\n  for (let i = 0; i \u003c values.length; i++) {\r\n    const d = values[i] - mean;\r\n    acc += d * d;\r\n  }\r\n  return Math.sqrt(acc / values.length);\r\n}\r\n\r\n/**\r\n * 籾1粒ごとの特徴量を取り出す。\r\n * 並びは GRAIN_FEATURE_NAMES と一致していること（モデルの係数の列に対応する）。\r\n *\r\n * 戻り値は { rows, kept }。kept は rows と同じ並びの粒ID。\r\n * 画素が1つも取れなかった粒は飛ばすので、呼び出し側が seg.validIds の\r\n * 添字でラベルを対応づけると1粒ぶんずれる。Python 側（features.py）も\r\n * 同じ理由で kept を返している。\r\n */\r\nfunction grainExtractFeatures(ctx, seg) {\r\n  const { s, v, hue, L, A, B, paper, w, h } = ctx;\r\n  const ids = seg.validIds;\r\n  if (ids.length === 0) return { rows: [], kept: [] };\r\n\r\n  // まわりの紙の明るさを引くための下ごしらえ。\r\n  // 影で暗くなった粒を、明るさの絶対値で誤判定しないための補正に使う。\r\n  const iw = w + 1;\r\n  const paperL = new Float64Array(w * h);\r\n  const paperN = new Float64Array(w * h);\r\n  let globalSum = 0, globalN = 0;\r\n  for (let i = 0; i \u003c w * h; i++) {\r\n    if (paper[i]) {\r\n      paperL[i] = L[i];\r\n      paperN[i] = 1;\r\n      globalSum += L[i];\r\n      globalN++;\r\n    }\r\n  }\r\n  const paperLInt = integralImage(paperL, w, h);\r\n  const paperNInt = integralImage(paperN, w, h);\r\n  const globalPaperL = globalN > 0 ? globalSum / globalN : 50;\r\n\r\n  const box = Math.max(8, Math.round(seg.radius * GRAIN_PARAMS.PAPER_BOX_RATIO));\r\n  const medianArea = median(ids.map((i) => seg.props[i].area));\r\n\r\n  const rows = [];\r\n  const kept = [];\r\n  for (const gid of ids) {\r\n    const p = seg.props[gid];\r\n    const [bx0, by0, bx1, by1] = p.bbox;\r\n\r\n    const Lv = [], Av = [], Bv = [], hv = [];\r\n    let sumL = 0, sumA = 0, sumB = 0, sumH = 0, sumS = 0, sumV = 0, sumC = 0;\r\n    let nGreen = 0, nYg = 0, nYellow = 0, nBrown = 0;\r\n\r\n    for (let y = by0; y \u003c= by1; y++) {\r\n      for (let x = bx0; x \u003c= bx1; x++) {\r\n        const i = y * w + x;\r\n        if (seg.labels[i] !== gid) continue;\r\n        Lv.push(L[i]); Av.push(A[i]); Bv.push(B[i]); hv.push(hue[i]);\r\n        sumL += L[i]; sumA += A[i]; sumB += B[i];\r\n        sumH += hue[i]; sumS += s[i]; sumV += v[i];\r\n        sumC += Math.sqrt(A[i] * A[i] + B[i] * B[i]);\r\n\r\n        const cls = grainClassifyPixel(hue[i], s[i]);\r\n        if (cls === GPX_GREEN) nGreen++;\r\n        else if (cls === GPX_YG) nYg++;\r\n        else if (cls === GPX_YELLOW) nYellow++;\r\n        else if (cls === GPX_BROWN) nBrown++;\r\n      }\r\n    }\r\n    const n = Lv.length;\r\n    if (n === 0) continue;\r\n\r\n    // --- まわりの紙の明るさ ---\r\n    const qx0 = Math.max(0, bx0 - box);\r\n    const qy0 = Math.max(0, by0 - box);\r\n    const qx1 = Math.min(w, bx1 + 1 + box);\r\n    const qy1 = Math.min(h, by1 + 1 + box);\r\n    const pn = boxSum(paperNInt, iw, qx0, qy0, qx1, qy1);\r\n    const localPaperL = pn >= GRAIN_PARAMS.PAPER_LOCAL_MIN_PX ? boxSum(paperLInt, iw, qx0, qy0, qx1, qy1) / pn : globalPaperL;\r\n\r\n    const meanL = sumL / n;\r\n    const meanA = sumA / n;\r\n    const meanB = sumB / n;\r\n\r\n    rows.push([\r\n      meanL, percentile(Lv, 25), percentile(Lv, 75),\r\n      meanA, percentile(Av, 25), percentile(Av, 75),\r\n      meanB, percentile(Bv, 25), percentile(Bv, 75),\r\n      sumC / n,\r\n      sumH / n, percentile(hv, 25), percentile(hv, 75),\r\n      sumS / n, sumV / n,\r\n      nGreen / n, nYg / n, nYellow / n, nBrown / n,\r\n      stdev(Bv, meanB), stdev(Av, meanA), stdev(Lv, meanL),\r\n      meanL - localPaperL,\r\n      localPaperL > 1e-6 ? meanL / localPaperL : 1,\r\n      medianArea > 0 ? p.area / medianArea : 1,\r\n      Math.min(p.elongation, GRAIN_PARAMS.ELONGATION_CAP),\r\n      p.fill,\r\n    ]);\r\n    kept.push(gid);\r\n  }\r\n  return { rows: rows, kept: kept };\r\n}\r\n\r\n/**\r\n * 学習済みモデルで1粒を判定する。\r\n * 標準化してから線形結合し、いちばん大きいクラスを選ぶだけ。\r\n * この軽さのおかげで、外部の実行環境なしに単一HTMLのまま動かせる。\r\n */\r\nfunction grainPredict(model, row) {\r\n  const nc = model.classes.length;\r\n  let best = 0;\r\n  let bestScore = -Infinity;\r\n  for (let c = 0; c \u003c nc; c++) {\r\n    let acc = model.intercept[c];\r\n    const coef = model.coef[c];\r\n    for (let f = 0; f \u003c row.length; f++) {\r\n      acc += coef[f] * ((row[f] - model.mean[f]) / model.scale[f]);\r\n    }\r\n    if (acc > bestScore) { bestScore = acc; best = c; }\r\n  }\r\n  return model.classes[best];\r\n}\r\n\r\n// 学習前に使う色の目安（下書き用）。値は params.py に集約してある。\r\n/**\r\n * 【分岐の順序について — 不具合の修正】\r\n * 以前は 緑 → 褐変 → 帯緑 → 黄化 の順で、褐変の判定が帯緑より先にあった。\r\n * そのため「緑が半分残っているが褐変も45%以上ある」籾が褐変と判定され、\r\n * 褐変は黄化の内数なので黄化に算入されていた。\r\n * 誤りの向きが「黄化率を高く出す＝早刈り」という危険な側だったため、\r\n * 緑の有無を褐変より先に見るように直した。Python側（labels.py）と同じ順序。\r\n */\r\nfunction grainAutoLabel(row, th) {\r\n  const iGreen = GRAIN_FEATURE_NAMES.indexOf('frac_green');\r\n  const iYg = GRAIN_FEATURE_NAMES.indexOf('frac_yg');\r\n  const iBrown = GRAIN_FEATURE_NAMES.indexOf('frac_brown');\r\n  return grainLabelFromColor(row[iGreen] + row[iYg], row[iBrown], th);\r\n}\r\n\r\n/**\r\n * 粒の色の内訳からラベルを決める。\r\n *\r\n * 特徴量の行ではなく「緑の割合」「褐変の割合」の2つだけを受けるようにしてある。\r\n * 人が直した粒を学習に使うとき、写真そのものを残さずこの2つだけ保存すれば\r\n * 済むようにするため。学習後の判定もこの同じ関数を通る。\r\n *\r\n * @param {number} green 1粒の画素のうち緑＋黄緑の割合\r\n * @param {number} brown 同じく褐変の割合\r\n * @param {?object} th しきい値。省略すると既定値（GRAIN_PARAMS）\r\n */\r\nfunction grainLabelFromColor(green, brown, th) {\r\n  const t = th || GRAIN_PARAMS;\r\n  if (green >= t.AUTO_GREEN_FULL) return 'green';\r\n  if (green >= t.AUTO_GREENBELT_MIN) return 'greenbelt';\r\n  if (brown >= t.AUTO_BROWN_MIN) return 'brown';\r\n  return 'yellow';\r\n}\r\n\r\n/**\r\n * その粒が「籾でありうる色」をしているか。していなければ母数から外す。\r\n *\r\n * 【なぜ必要か — 実測にもとづく追加】\r\n * grainAutoLabel は緑・褐変のどちらでもない粒を最後に yellow へ落とす。\r\n * ところが画素の分類には PX_OTHER（低彩度、または籾ではありえない色相）があり、\r\n * その塊も「緑でも褐変でもない」ので黄化に算入されていた。\r\n *\r\n * 260810 の写真では、黄化と数えた粒の 60.8% がこれだった。中身は\r\n * 色相 200〜218°・彩度 0.554 の青い画素で、青空の下で白い面に落ちた影である。\r\n * segment 側は「紙に落ちた影も無彩色のまま暗くなるだけ」を前提に彩度で前景を\r\n * 切っているが、屋外では影が空の青を拾って強く色づくため、この前提が崩れる。\r\n *\r\n * 青い影を「黄化した籾」と数えるのは、誤りの向きが早刈り側で危険なので、\r\n * 学習済みモデルの有無にかかわらず、判定より先に母数から外す。\r\n *\r\n * ここで外すのは色だけを根拠にした判断で、前景抽出そのものは直していない。\r\n * 影を前景として拾う問題自体は grain-segment 側の課題として残っている。\r\n */\r\nfunction grainColorImplausible(row) {\r\n  const f = (name) => row[GRAIN_FEATURE_NAMES.indexOf(name)];\r\n  const classified = f('frac_green') + f('frac_yg') + f('frac_yellow') + f('frac_brown');\r\n  return classified \u003c GRAIN_PARAMS.GRAIN_MIN_CLASSIFIED;\r\n}\r\n\r\n/**\r\n * 籾のラベルを集計して籾黄化率を出す。\r\n * 黄化に数えるのは yellow と brown。exclude は母数から外す。\r\n */\r\nfunction grainCount(labels) {\r\n  const counts = { yellow: 0, greenbelt: 0, green: 0, brown: 0, exclude: 0 };\r\n  for (const lb of labels) {\r\n    if (counts[lb] !== undefined) counts[lb]++;\r\n  }\r\n  const total = counts.yellow + counts.greenbelt + counts.green + counts.brown;\r\n  if (total === 0) {\r\n    return { counts: counts, total: 0, yellowing: null, greenRatio: null, brownRatio: null };\r\n  }\r\n  return {\r\n    counts: counts,\r\n    total: total,\r\n    yellowing: ((counts.yellow + counts.brown) / total) * 100,\r\n    greenRatio: ((counts.greenbelt + counts.green) / total) * 100,\r\n    brownRatio: (counts.brown / total) * 100,\r\n  };\r\n}\r\n\r\n// ステージ判定（黄化率 → まだ早い〜刈り遅れ）は、ここには置かない。\r\n//\r\n// 以前は grainStageFromYellowing という関数を用意していたが、組み込み後の\r\n// HTMLからは一度も呼ばれていなかった。実際に使われるのは既存の\r\n// stageFromGreenRatio で、そちらは品種マスタ（greenHi / greenLo）を見る。\r\n// 同じ判定が2か所にあると、片方だけ直したときに気づけないため削除した。\r\n//\r\n// 品種ごとの適期は設定タブの品種マスタで変える。\r\n// 帯緑籾率で持っているので、黄化率でいえば 100 から引いた値になる\r\n// （コシヒカリの 15 / 10 は黄化率 85% / 90%）。\r\n\r\n/* ===== js: analysis/grain-analyze.js ===== */\r\n// 粒カウント方式の入口\r\n//\r\n// 既存の analyzePanicle と差し替えられるよう、戻り値の形をそろえてある。\r\n// 同じ名前の項目（greenIndex / yellowingRatio / composition / mask / warnings）を\r\n// 同じ意味・同じ単位で返すので、judge() も画面表示も学習も履歴もそのまま動く。\r\n// 粒ごとの内訳（grains / grainCounts）は追加した項目。\r\n//\r\n// 【単位のそろえ方】\r\n//   greenIndex     … 帯緑籾率を 0〜1 で表したもの（籾数ベース）\r\n//   yellowingRatio … 籾黄化率を 0〜1 で表したもの（籾数ベース）\r\n//\r\n// 既存の換算式は初期状態で「傾き1・切片0」なので、greenIndex に\r\n// 籾数ベースの帯緑籾率を入れれば estimateGreenRatioPct がそのまま\r\n// 正しい帯緑籾率(%)を返す。品種マスタの greenHi:15 / greenLo:10 は\r\n// 黄化率でいう 85% / 90% にあたり、指導基準と一致する。\r\n// つまりキャリブレーションは不要になる。\r\n\r\n/**\r\n * 穂の写真から籾を1粒ずつ数えて黄化率を出す。\r\n *\r\n * @param {ImageData} imageData 作業解像度の画像\r\n * @param {?{x:number,y:number,w:number,h:number}} rect 解析範囲（null なら全体）\r\n * @param {?object} model 学習済みモデル。null なら色の目安で判定する\r\n * @param {?object} thresholds 判定に使う色のしきい値。\r\n *        省略するとその場で grainThresholds() を読む。\r\n *        Worker の中には保存（DB）が無いので、呼ぶ側が渡せるようにしてある。\r\n */\r\nfunction analyzeGrains(imageData, rect, model, thresholds) {\r\n  const W = imageData.width;\r\n  const H = imageData.height;\r\n\r\n  const rx = rect ? clamp(Math.round(rect.x), 0, W - 1) : 0;\r\n  const ry = rect ? clamp(Math.round(rect.y), 0, H - 1) : 0;\r\n  const rw = rect ? clamp(Math.round(rect.w), 1, W - rx) : W;\r\n  const rh = rect ? clamp(Math.round(rect.h), 1, H - ry) : H;\r\n\r\n  // 指定範囲だけを切り出して扱う。範囲外の机や地面を巻き込まないため。\r\n  const n = rw * rh;\r\n  const src = new Uint8ClampedArray(n * 4);\r\n  for (let y = 0; y \u003c rh; y++) {\r\n    const from = ((ry + y) * W + rx) * 4;\r\n    src.set(imageData.data.subarray(from, from + rw * 4), y * rw * 4);\r\n  }\r\n\r\n  // --- ホワイトバランス（紙の検出より先に行う） ---\r\n  // 色かぶりが残ったままだと「彩度が低く明るい＝紙」の判定がずれる。\r\n  let hsv = grainRgbToHsv(src, n);\r\n  const wb = grainEstimateWB(src, hsv.s, hsv.v, n);\r\n  const data = grainApplyWB(src, wb.gains);\r\n\r\n  hsv = grainRgbToHsv(data, n);\r\n  const lab = grainRgbToLab(data, n);\r\n\r\n  // --- 紙の検出と粒の切り出し ---\r\n  const paper = grainDetectPaper(hsv.s, hsv.v, rw, rh);\r\n  const seg = grainSegment(hsv.s, hsv.v, lab.L, paper.mask, rw, rh);\r\n\r\n  const ctx = {\r\n    s: hsv.s, v: hsv.v, hue: hsv.h,\r\n    L: lab.L, A: lab.a, B: lab.b,\r\n    paper: paper.mask, w: rw, h: rh,\r\n  };\r\n\r\n  // --- 1粒ずつ判定する ---\r\n  // 籾でありうる色をしていない粒は、判定より先に母数から外す。\r\n  // 学習済みモデルを使う場合も同じく外す（青い影を分類しても意味がないため）。\r\n  const feat = grainExtractFeatures(ctx, seg);\r\n  // 学習済みがあればそれを、無ければ既定値を使う\r\n  const th = thresholds || grainThresholds();\r\n  let implausible = 0;\r\n  const labels = feat.rows.map((row) => {\r\n    if (grainColorImplausible(row)) {\r\n      implausible++;\r\n      return 'exclude';\r\n    }\r\n    return model ? grainPredict(model, row) : grainAutoLabel(row, th);\r\n  });\r\n  // --- 粒ごとの情報（あとで人が直せるようにするため） ---\r\n  // 1粒ずつ確かめる画面と、その結果からのしきい値の学習に使う。\r\n  // 27個の特徴量すべてではなく、判定に効く2つと切り抜きに要る位置だけ持つ\r\n  // （保存するのはこの2つだけなので、写真そのものを残さずに学習できる）。\r\n  const iGreen = GRAIN_FEATURE_NAMES.indexOf('frac_green');\r\n  const iYg = GRAIN_FEATURE_NAMES.indexOf('frac_yg');\r\n  const iBrown = GRAIN_FEATURE_NAMES.indexOf('frac_brown');\r\n  const grains = feat.kept.map((gid, i) => {\r\n    const p = seg.props[gid];\r\n    return {\r\n      id: gid,\r\n      label: labels[i],\r\n      auto: labels[i],                   // 人が直したかどうかを見分けるため、元の判定を残す\r\n      green: feat.rows[i][iGreen] + feat.rows[i][iYg],\r\n      brown: feat.rows[i][iBrown],\r\n      bbox: p.bbox,                      // [x0, y0, x1, y1]（解析範囲の中の座標）\r\n      area: p.area,\r\n    };\r\n  });\r\n\r\n  // 数えるのは必ず grains から。人が塗り替えたあとの数え直し\r\n  // （recountFromGrains）と同じ材料・同じ数え方にするため。\r\n  const counted = grainCount(\r\n    grains.map((g) => g.label).concat(seg.excludedIds.map(() => 'exclude')),\r\n  );\r\n\r\n  // --- 表示用のマスクを作る（既存のオーバーレイ描画がそのまま使える形） ---\r\n  const LABEL_TO_PX = {\r\n    yellow: PX_YELLOW,\r\n    greenbelt: PX_YG,\r\n    green: PX_GREEN,\r\n    brown: PX_BROWN,\r\n    exclude: PX_OTHER,\r\n  };\r\n  const maskData = new Uint8Array(n);\r\n  const idToPx = {};\r\n  // 添字ではなく kept（特徴量が取れた粒のID）で対応づける\r\n  feat.kept.forEach((gid, i) => { idToPx[gid] = LABEL_TO_PX[labels[i]] || PX_OTHER; });\r\n  for (const gid of seg.excludedIds) idToPx[gid] = PX_OTHER;\r\n\r\n  const hueHist = new Uint32Array(180);\r\n  const hueCount = new Uint32Array(360);\r\n  let foreground = 0;\r\n  let shadowPx = 0;   // 粒として切り出した画素のうち、籾でありえない色相のもの\r\n  // 色相の分布に入れた画素の数。除外した粒は入れていないので、\r\n  // foreground とは一致しない。中央値の分母にはこちらを使う。\r\n  // foreground を渡していたときは、除外した粒の画素ぶんだけ\r\n  // 中央値が緑寄り（大きい側）にずれていた。\r\n  let hueTotal = 0;\r\n\r\n  for (let i = 0; i \u003c n; i++) {\r\n    const gid = seg.labels[i];\r\n    if (!gid) continue;\r\n    const px = idToPx[gid];\r\n    if (px === undefined) continue;\r\n    maskData[i] = px;\r\n    foreground++;\r\n    const hv = hsv.h[i];\r\n    if (hv \u003c GRAIN_HSV.brownMin || hv > GRAIN_HSV.greenMax) shadowPx++;\r\n    if (px !== PX_OTHER) {\r\n      hueHist[Math.min(179, (hv / 2) | 0)]++;\r\n      hueCount[Math.min(359, hv | 0)]++;\r\n      hueTotal++;\r\n    }\r\n  }\r\n\r\n  // --- 内訳（籾数ベース）。既存の積み上げ棒がそのまま使える形にする ---\r\n  const c = counted.counts;\r\n  const composition = counted.total > 0 ? {\r\n    green: c.green / counted.total,\r\n    yg: c.greenbelt / counted.total,\r\n    yellow: c.yellow / counted.total,\r\n    brown: c.brown / counted.total,\r\n  } : null;\r\n\r\n  const result = {\r\n    mode: 'panicle',\r\n    method: 'grain',            // 粒カウント方式であることの目印\r\n    bgMode: 'white',\r\n    wb: wb,\r\n    // 既存と同じ名前・同じ単位（0〜1）\r\n    //\r\n    // 粒が少なすぎるときは値を出さない。1粒あたりの重みが大きすぎて、\r\n    // 数字の形はしていても中身が無い。呼ぶ側の hasGreenIndex が判定を止める。\r\n    greenIndex: (counted.greenRatio === null || counted.total \u003c GRAIN_PARAMS.TRUST_MIN_GRAIN_COUNT)\r\n      ? null : counted.greenRatio / 100,\r\n    yellowingRatio: (counted.yellowing === null || counted.total \u003c GRAIN_PARAMS.TRUST_MIN_GRAIN_COUNT)\r\n      ? null : counted.yellowing / 100,\r\n    greenRatio: counted.total > 0 ? c.green / counted.total : null,\r\n    yellowRatio: counted.total > 0 ? c.yellow / counted.total : null,\r\n    brownRatio: counted.brownRatio === null ? null : counted.brownRatio / 100,\r\n    composition: composition,\r\n    counts: {\r\n      green: c.green, yg: c.greenbelt, yellow: c.yellow,\r\n      brown: c.brown, other: c.exclude,\r\n    },\r\n    total: n,\r\n    foreground: foreground,\r\n    foregroundRatio: seg.foregroundRatio,\r\n    hueMedian: medianFromHist(hueCount, hueTotal),\r\n    hist: hueHist,\r\n    mask: { data: maskData, w: rw, h: rh, x: rx, y: ry },\r\n    // --- ここから粒カウント方式で増えた項目 ---\r\n    grainCount: counted.total,\r\n    grainCounts: c,\r\n    grainRadius: seg.radius,\r\n    excludedCount: seg.excludedIds.length,\r\n    implausibleCount: implausible,   // 籾でない色として母数から外した数\r\n    workMaxEdge: Math.max(rw, rh),   // 半径の妥当性を解像度に対する比で見るため\r\n    paperFound: paper.found,\r\n    // 粒として切り出した範囲に混ざった、籾でありえない色（青い影）の割合。\r\n    // 直射日光で撮ったかどうかがこれで分かる。\r\n    shadowRatio: foreground ? shadowPx / foreground : 0,\r\n    grains: grains,                  // 1粒ずつ確かめる画面と学習に使う\r\n    thresholds: th,                  // このときどのしきい値で判定したか\r\n    // 画素ごとの粒ID。人が粒を塗り替えたときにマスクを塗り直すのに使う。\r\n    // mask.data と同じ並び（解析範囲の中の座標）。\r\n    grainMapIds: seg.labels,\r\n    warnings: [],\r\n  };\r\n\r\n  grainCollectWarnings(result, seg);\r\n  return result;\r\n}\r\n\r\n/**\r\n * 特徴量そのものを取り出す（検証用）。\r\n *\r\n * analyzeGrains と同じ前処理を通したうえで、粒ごとの特徴量27列を返す。\r\n * tests/test_parity.py が Python 側と全列を突き合わせるために使う。\r\n * 最終出力（粒数・黄化率）の比較だけでは、学習前の判定が読まない\r\n * 24個の特徴量のずれを検出できないため。\r\n */\r\nfunction grainFeatureDump(imageData) {\r\n  const n = imageData.width * imageData.height;\r\n  let hsv = grainRgbToHsv(imageData.data, n);\r\n  const wb = grainEstimateWB(imageData.data, hsv.s, hsv.v, n);\r\n  const data = grainApplyWB(imageData.data, wb.gains);\r\n\r\n  hsv = grainRgbToHsv(data, n);\r\n  const lab = grainRgbToLab(data, n);\r\n  const paper = grainDetectPaper(hsv.s, hsv.v, imageData.width, imageData.height);\r\n  const seg = grainSegment(hsv.s, hsv.v, lab.L, paper.mask, imageData.width, imageData.height);\r\n\r\n  const feat = grainExtractFeatures({\r\n    s: hsv.s, v: hsv.v, hue: hsv.h,\r\n    L: lab.L, A: lab.a, B: lab.b,\r\n    paper: paper.mask, w: imageData.width, h: imageData.height,\r\n  }, seg);\r\n\r\n  return { names: GRAIN_FEATURE_NAMES, kept: feat.kept, rows: feat.rows };\r\n}\r\n\r\n/** 判定を信用してよいかの確認。既存の collectWarnings と同じ形式で返す。 */\r\nfunction grainCollectWarnings(res, seg) {\r\n  const w = res.warnings;\r\n\r\n  if (!res.paperFound) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: '白い紙を検出できませんでした。写真全体を解析したため、机や地面が籾として数えられている可能性があります。白い紙を敷いて撮り直してください。',\r\n    });\r\n  }\r\n  if (res.wb.method === 'gray') {\r\n    w.push({ level: 'warn', text: '白い紙が写っていないため簡易的な色補正になりました。白い紙を背景に敷いて撮り直すと精度が上がります。' });\r\n  } else if (res.wb.method === 'clipped') {\r\n    w.push({\r\n      level: 'warn',\r\n      text: '白い紙が明るすぎて真っ白に飛んでいるため、色補正をしていません。'\r\n        + '明るい日陰で撮り直すと精度が上がります。直射日光の下では飛びやすくなります。',\r\n    });\r\n  } else if (res.wb.method === 'none') {\r\n    w.push({ level: 'alert', text: '色補正ができませんでした。写真が暗すぎるか白飛びしている可能性があります。' });\r\n  }\r\n\r\n  for (const text of seg.warnings) {\r\n    w.push({ level: 'alert', text: text });\r\n  }\r\n\r\n  if (res.grainCount === 0) {\r\n    w.push({ level: 'alert', text: '数えられる籾がありませんでした。' });\r\n  }\r\n\r\n  if (res.grainCount > 0 && res.grainCount \u003c GRAIN_PARAMS.TRUST_MIN_GRAIN_COUNT) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `数えられた籾が${res.grainCount}粒しかありません。`\r\n        + '1粒あたりの重みが大きすぎるため、この写真から刈取の判定は出せません。'\r\n        + '白い紙の上に1穂だけを広げて置き、穂全体が入るように撮り直してください。',\r\n    });\r\n  } else if (res.grainCount > 0 && res.grainCount \u003c GRAIN_PARAMS.MIN_GRAIN_COUNT) {\r\n    w.push({\r\n      level: 'warn',\r\n      text: `数えられた籾が${res.grainCount}粒しかありません。${GRAIN_PARAMS.MIN_GRAIN_COUNT}粒以上になるよう、穂を広げて近づいて撮り直すと安定します。`,\r\n    });\r\n  }\r\n\r\n  // --- 分割が壊れていないかの確認 ---\r\n  // 下限だけでなく上限も見る。分割が壊れると粒数が実際よりはるかに多く出て、\r\n  // そのまま黄化率として表示されてしまうため。\r\n  if (res.grainCount > GRAIN_PARAMS.MAX_GRAIN_COUNT) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `${res.grainCount}粒を検出しました。1穂の籾数としては多すぎます。`\r\n        + '複数の穂が写っているか、1粒が複数に分かれて数えられています。'\r\n        + '1穂だけを写して撮り直してください。この判定は信用できません。',\r\n    });\r\n  }\r\n\r\n  // 粒半径は分割が壊れたときに真っ先に落ちるので、粒数より早く気づける。\r\n  const minRadius = res.workMaxEdge * GRAIN_PARAMS.MIN_GRAIN_RADIUS_WARN_RATIO;\r\n  if (res.grainCount > 0 && res.grainRadius > 0 && res.grainRadius \u003c minRadius) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: '籾が小さく写っているか、1粒が複数に分かれて数えられています。'\r\n        + 'もっと近づいて、穂が画面いっぱいになるように撮り直してください。',\r\n    });\r\n  }\r\n\r\n  // 直射日光で撮ったかどうか。粒として切り出した範囲に、籾でありえない\r\n  // 色相（青い影）がどれだけ混ざっているかで見る。\r\n  //\r\n  // 影は切り出しの段階で前景に入ってしまうため、粒の輪郭と半径の推定を\r\n  // 内側から狂わせる。粒数が一見それらしくても数値は当てにならない。\r\n  if (res.shadowRatio > GRAIN_PARAMS.SHADOW_WARN_RATIO) {\r\n    w.push({\r\n      level: 'warn',\r\n      text: `籾に濃い影がかかっています（籾とみなした範囲の${fmtPct(res.shadowRatio, 0)}）。`\r\n        + '直射日光の下では紙に落ちた影が青く色づき、籾の輪郭がぼやけます。'\r\n        + '明るい日陰で撮り直すと数値が安定します。',\r\n    });\r\n  }\r\n\r\n  // 籾でありえない色（青い影・写り込んだ物）を母数から外した割合。\r\n  const seen = res.grainCount + res.implausibleCount;\r\n  if (seen > 0 && res.implausibleCount / seen > GRAIN_PARAMS.MAX_IMPLAUSIBLE_RATIO) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `籾ではない色の部分を${res.implausibleCount}か所ふくんでいたため、数から除きました。`\r\n        + '穂に濃い影がかかっているか、白い紙の上に別のものが写っています。'\r\n        + '明るい日陰で、白い紙だけが背景になるように撮り直してください。',\r\n    });\r\n  }\r\n\r\n  const denom = res.grainCount + res.excludedCount;\r\n  if (denom > 0 && res.excludedCount / denom > GRAIN_PARAMS.MAX_EXCLUDE_RATIO) {\r\n    w.push({\r\n      level: 'warn',\r\n      text: `籾として数えられなかった部分が${res.excludedCount}か所あります。籾が重なっている可能性があります。重ならないように広げて撮り直してください。`,\r\n    });\r\n  }\r\n\r\n  if (res.brownRatio !== null && res.brownRatio > GRAIN_PARAMS.BROWN_WARN_RATIO) {\r\n    w.push({\r\n      level: 'alert',\r\n      text: `褐変した籾が多く見られます（${fmtPct(res.brownRatio, 0)}・黄化率の内数）。刈り遅れ、または枯れ・被害の可能性があります。`,\r\n    });\r\n  }\r\n}\r\n\r\n/* ===== js: analysis/worker-shim.js ===== */\r\n// Worker の中だけで動く部分。build.mjs が解析コードの末尾に足す。\r\n//\r\n// このファイルは画面用のHTMLには入らない。Worker用の文字列にだけ入る。\r\n\r\nself.onmessage = function (e) {\r\n  const m = e.data;\r\n  try {\r\n    // Worker には ImageData が無い環境もあるので、同じ形の入れ物を自前で渡す。\r\n    const img = { width: m.width, height: m.height, data: m.data };\r\n    const result = analyzeGrains(img, m.rect, m.model, m.thresholds);\r\n\r\n    // 大きい配列は「移して」返す。写すと数MBの複製がもう1つできる。\r\n    // これらは Worker の中で作ったもので、こちら側にはもう用が無い。\r\n    const transfer = [];\r\n    for (const buf of [result.mask.data.buffer, result.hist.buffer, result.grainMapIds.buffer]) {\r\n      if (buf && transfer.indexOf(buf) \u003c 0) transfer.push(buf);\r\n    }\r\n    self.postMessage({ id: m.id, result: result }, transfer);\r\n  } catch (err) {\r\n    self.postMessage({ id: m.id, error: String(err && err.message ? err.message : err) });\r\n  }\r\n};";
 
 /* ===== js: core/util.js ===== */
 // 共通ユーティリティ
@@ -1277,9 +1308,99 @@ const DEFAULT_VARIETIES = [
 
 const VARIETY_GROUPS = ['うるち', 'もち', '酒米'];
 
-function makeDefaultVarieties() {
-  return DEFAULT_VARIETIES.map((v, i) => Object.assign({ id: 'v' + i }, v));
+/**
+ * 品種の印。名前そのものを使う。
+ *
+ * 【なぜ通し番号をやめたか】
+ * 以前は 'v0'…'v12' という並び順の番号だった。品種の一覧を21種から
+ * 13種に入れ替えたとき、同じ 'v1' が「ひとめぼれ」から「コシヒカリBL」に、
+ * 'v10' が「あきさかり（うるち）」から「こがねもち（もち）」に変わった。
+ * 記録の varietyId は昔のままなので、findVariety は失敗せずに
+ * 「別の品種」を返す。もち米の基準でうるち米の記録を見ることになり、
+ * 履歴の判定が黙って変わる（5040通りを試して755通りで変わった）。
+ * 名前を印にすれば、合うか合わないかのどちらかにしかならない。
+ */
+function varietyIdOf(name) {
+  return 'v:' + name;
 }
+
+function makeDefaultVarieties() {
+  return DEFAULT_VARIETIES.map((v) => Object.assign({ id: varietyIdOf(v.name) }, v));
+}
+
+/**
+ * 記録・学習が指す品種を、名前で今の一覧につなぎ直す。
+ *
+ * 品種の一覧を入れ替えると印が変わる。記録には品種名も残してあるので、
+ * それを頼りにつなぎ直す。名前が今の一覧に無ければ印を外す。
+ * 外れた記録は判定を計算し直さず、撮ったときの判定をそのまま残す
+ * （combine.js が品種の無い記録をそう扱う）。黙って別の品種の基準で
+ * 見せるより、そのときの判定を据え置くほうが正しい。
+ *
+ * @returns {number} つなぎ直した記録の件数
+ */
+function relinkVarieties() {
+  const byName = new Map(DB.varieties.map((v) => [v.name, v.id]));
+  let changed = 0;
+
+  for (const r of DB.records) {
+    const want = r.varietyName ? (byName.get(r.varietyName) || null) : null;
+    if ((r.varietyId || null) !== want) { r.varietyId = want; changed++; }
+  }
+
+  // 学習した基準も品種の印で持っているので、印が変わると別の品種に付け替わる。
+  // 中身は DB.records からいつでも作り直せるので、ここでは破棄する。
+  // 呼んだ側が relearnAll() を続けて呼ぶこと。
+  DB.learned = {};
+
+  for (const p of DB.plots) {
+    if (p.varietyId && !DB.varieties.some((v) => v.id === p.varietyId)) p.varietyId = null;
+  }
+  return changed;
+}
+
+/* ===== js: core/changelog.js ===== */
+// 更新の記録
+//
+// 【使い方】
+// アプリを直したら、いちばん上に1つ足してください。日付は新しい順に並べます。
+// 中身が「利用者から見て何が変わったか」になっているか確かめてください。
+// 直した場所の名前ではなく、使っていて気づくことを書きます。
+//
+// ここに1件でも「前に見た版より新しい日付」があると、
+// アプリを開いたときに「新しくなりました」の画面が出ます（app.js）。
+// 日付を足さずに作り直しただけなら、その画面は出ません。
+//
+//   date  : YYYY-MM-DD。この日付で「前に見た版」と比べる。
+//   title : 一行の見出し。
+//   lines : 変わったことを1つずつ。頭に「◆」を付けたものは大きな変更。
+
+const CHANGELOG = [
+  {
+    date: '2026-08-21',
+    title: '判定の取り違えにつながる不具合をまとめて修正',
+    lines: [
+      '◆ 白い紙が明るすぎると、解析が丸ごと失敗していました。日向で撮ると起きます。'
+        + '「白い紙を検出できませんでした」と出ていたのは、紙を敷いていても起きていました。直しました。',
+      '◆ 籾が20粒より少ない写真では、刈取の判定を出さないようにしました。'
+        + '手やバケツが写り込んで1粒しか数えられないとき、その1粒の色で「刈り遅れ」と出ていました。',
+      '◆ 品種の一覧を入れ替えたとき、古い記録が別の品種の基準で判定されることがありました。'
+        + 'もち米の基準でうるち米を見ることになります。品種名でつなぎ直すよう直しました。',
+      '同じ穂を撮り直して、中央値で見られるようにしました。'
+        + '記録したあとに出る「この穂をもう1枚撮る」から続けて撮ってください。',
+      '判断の境目（黄化率85%・90%）に近い数字のとき、その場でお知らせします。'
+        + '置き直して撮るだけで最大4.8ポイント動くため、1枚では決められません。',
+      '同じ写真をもう一度解析して記録すると、2件に数えられていました。中央値が狂います。直しました。',
+      '品種・圃場・撮影日・出穂日を変えたとき、その場で判定し直すようにしました。'
+        + '以前は画面の判定が古いまま残り、そのまま記録できてしまいました。',
+      '白い紙が写っていないのに「写っている」と判断することがあったのを直しました。',
+      '保存データが読めなかったとき、黙って消していたのをやめました。中身を取っておいて画面でお知らせします。',
+      '保存できないときに、写真だけ消して数字と判定を残せるようにしました（設定タブ）。',
+      '履歴で、廃止した「圃場の全景」「バラした籾」で撮った古い記録に「旧」の印を付けました。'
+        + '今の穂アップの数字とは尺度が違います。',
+    ],
+  },
+];
 
 /* ===== js: core/store.js ===== */
 // データ永続化（localStorage）
@@ -1288,7 +1409,14 @@ function makeDefaultVarieties() {
 // 写真は原本を保存せず、160px幅のサムネイルのみ保持する（容量対策）。
 
 const STORAGE_KEY = 'kariire_tekiki_v1';
-const SCHEMA_VERSION = 1;
+// 読めなかった中身の退避先。上書きしない（最初の1回だけ書く）。
+const BACKUP_KEY = 'kariire_tekiki_v1__broken';
+
+// 保存データが壊れていたか。起動後に画面で知らせるのに使う。
+let loadCorrupted = false;
+// 2 で、品種の印を通し番号（v0…）から名前（v:コシヒカリ）に変えた。
+// 上げると applyDB が一度だけつなぎ直しを行う。
+const SCHEMA_VERSION = 2;
 
 /** 色相しきい値の初期値（HSV の H、度）。通常は変更不要。 */
 const DEFAULT_HSV = {
@@ -1314,6 +1442,12 @@ const DEFAULT_SETTINGS = {
   useLearned: true,        // 穂の段階のしきい値の学習（judge/learn.js）
   useGrainCount: true,     // 籾を1粒ずつ数える方式
   useGrainLearned: true,   // 人が直した粒から学習した色のしきい値（judge/grain-learn.js）
+
+  // 最後に見た版の日付。「新しくなりました」を出すかの判断に使う。
+  //
+  // 版の印（ハッシュ）ではなく日付で持つ。印は中身を直さずに
+  // 作り直しても変わるので、印で比べると毎回出てしまう。
+  lastSeenVersionDate: null,
 };
 
 const DB = {
@@ -1352,10 +1486,22 @@ function applyDB(data) {
   DB.calib = Object.assign({}, DEFAULT_CALIB, data && data.calib);
   DB.settings = Object.assign({}, DEFAULT_SETTINGS, data && data.settings);
   DB.learned = (data && data.learned && typeof data.learned === 'object') ? data.learned : {};
+  const wasVersion = (data && Number(data.version)) || 1;
   DB.version = SCHEMA_VERSION;
   if (!Array.isArray(DB.varieties) || DB.varieties.length === 0) DB.varieties = makeDefaultVarieties();
   for (const key of ['plots', 'stations', 'records', 'grainSamples']) {
     if (!Array.isArray(DB[key])) DB[key] = [];
+  }
+
+  // 品種の印を通し番号から名前に変えたときのつなぎ直し。
+  //
+  // 通し番号のままだと、品種の一覧を入れ替えたときに同じ番号が
+  // 別の品種を指す。findVariety は失敗せずに違う品種を返すので、
+  // 履歴の判定が黙って変わる（もち米の基準でうるち米を見るなど）。
+  if (wasVersion < 2) {
+    DB.varieties = DB.varieties.map((v) =>
+      (String(v.id).indexOf('v:') === 0 ? v : Object.assign({}, v, { id: varietyIdOf(v.name) })));
+    relinkVarieties();
   }
 }
 
@@ -1373,9 +1519,47 @@ function loadDB() {
   try {
     applyDB(JSON.parse(raw));
   } catch (e) {
-    console.error('保存データを読み込めませんでした。初期状態で起動します。', e);
+    // 壊れた中身をそのまま取っておく。
+    //
+    // 【なぜ要るか】
+    // 以前はここで捨てて初期状態にしていた。初期状態は firstRunDone が
+    // 立っていないので、boot() が起動直後に保存を走らせ、壊れた原本を
+    // 空のデータで上書きしていた。利用者から見ると、開いたら記録が
+    // 全部消えていて、手の打ちようが無い。中身が部分的に読めるなら
+    // 手で拾い出せる余地があるので、消さずに別の場所へ移す。
+    console.error('保存データを読み込めませんでした。', e);
+    try {
+      if (!localStorage.getItem(BACKUP_KEY)) localStorage.setItem(BACKUP_KEY, raw);
+    } catch (e2) {
+      console.error('壊れたデータの退避にも失敗しました:', e2);
+    }
     applyDB(null);
+    loadCorrupted = true;
   }
+}
+
+/**
+ * 保存データが読めなかったことを画面に残す。
+ *
+ * トーストでは起動直後の描画に紛れて見逃される。消えない帯にする。
+ */
+function showLoadError() {
+  if (!loadCorrupted) return;
+  if (document.getElementById('load-error-bar')) return;
+  let kept = false;
+  try { kept = !!localStorage.getItem(BACKUP_KEY); } catch (e) { kept = false; }
+  const bar = el('div', { id: 'load-error-bar', class: 'save-error-bar' }, [
+    el('span', {
+      text: kept
+        ? '保存されていた記録を読み取れませんでした。中身は消さずに取ってあります。'
+        : '保存されていた記録を読み取れませんでした。',
+    }),
+    el('button', {
+      class: 'mini-btn', text: '閉じる',
+      onclick: () => bar.remove(),
+    }),
+  ]);
+  document.body.appendChild(bar);
 }
 
 let saveFailed = false;
@@ -1411,11 +1595,13 @@ function showSaveError() {
   const bar = el('div', { id: 'save-error-bar', class: 'save-error-bar' }, [
     el('span', { text: '保存できていません。このままだと記録が残りません。' }),
     el('button', {
-      class: 'mini-btn', text: '古い履歴を消す',
+      class: 'mini-btn', text: '空きを作る',
       onclick: () => {
         const tab = $('.tab[data-tab="settings"]');
         if (tab) tab.click();
-        const target = $('#btn-purge-old');
+        // 初年度の利用者には「1年より前の履歴」が無いので、そちらへ案内しても
+        // 「削除対象の履歴はありません」で行き止まりになる。写真を落とす道を先に見せる。
+        const target = $('#btn-drop-thumbs') || $('#btn-purge-old');
         if (target && target.scrollIntoView) target.scrollIntoView({ block: 'center' });
       },
     }),
@@ -1563,11 +1749,17 @@ function estimateWhiteBalance(data, hsv) {
 
   let wr = 0, wg = 0, wb = 0, wc = 0;   // 白候補の合計
   let ar = 0, ag = 0, ab = 0, ac = 0;   // 全体（白飛び除く）の合計
+  let clippedWhite = 0;                 // 白いが明るすぎて色が飛んでいる画素
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     // 白飛びした画素は元の色が失われているので基準に使わない
-    if (r >= 250 || g >= 250 || b >= 250) continue;
+    const clipped = r >= 250 || g >= 250 || b >= 250;
+    if (clipped) {
+      // 飛んでいても「白い場所がある」ことは分かる。数だけ覚えておく。
+      clippedWhite++;
+      continue;
+    }
     ar += r; ag += g; ab += b; ac++;
 
     rgbToHsv(r, g, b, hsvOut);
@@ -1576,12 +1768,16 @@ function estimateWhiteBalance(data, hsv) {
     }
   }
 
+  // 紙が写っている割合と、色の基準に使える割合を分ける（理由は grain-segment.js と同じ）。
+  const paperRatio = n > 0 ? (wc + clippedWhite) / n : 0;
   const whiteRatio = n > 0 ? wc / n : 0;
 
   let mr, mg, mb, method;
   if (whiteRatio >= WB_MIN_WHITE_RATIO) {
     mr = wr / wc; mg = wg / wc; mb = wb / wc;
     method = 'white';
+  } else if (paperRatio >= WB_MIN_WHITE_RATIO) {
+    return { gains: [1, 1, 1], method: 'clipped', whiteRatio: paperRatio };
   } else if (ac > 0) {
     mr = ar / ac; mg = ag / ac; mb = ab / ac;
     method = 'gray';
@@ -1619,6 +1815,7 @@ function applyWhiteBalance(data, gains) {
 function wbMethodLabel(method) {
   if (method === 'white') return '白い紙を基準に色を補正しました';
   if (method === 'gray') return '白い紙が見つからないため簡易補正（グレーワールド）を使用しました。精度が落ちます';
+  if (method === 'clipped') return '白い紙が明るすぎて色が飛んでいるため、色補正をしていません';
   return '色補正できませんでした';
 }
 
@@ -1777,6 +1974,13 @@ function medianFromHist(hist, total) {
 function collectWarnings(res, hsv) {
   const w = res.warnings;
 
+  if (res.wb.method === 'clipped') {
+    w.push({
+      level: 'warn',
+      text: '白い紙が明るすぎて真っ白に飛んでいるため、色補正をしていません。'
+        + '明るい日陰で撮り直すと精度が上がります。',
+    });
+  }
   if (res.wb.method === 'gray') {
     w.push({ level: 'warn', text: '白い紙が写っていないため簡易的な色補正になりました。白い紙を背景に敷いて撮り直すと精度が上がります。' });
   } else if (res.wb.method === 'none') {
@@ -1909,6 +2113,16 @@ const GRAIN_PARAMS = {
   // 1粒が2〜4片に切られ、1.00 では1粒が1領域になる。
   RADIUS_CORRECTION: 1.0,
   THIN_RADIUS_RATIO: 0.38,
+  // ぼかしと窓の大きさの上限（画素）。
+  //
+  // どちらも推定した粒の半径に比例して大きくする。ぼかしも最大値フィルタも
+  // 窓の大きさに比例して重いので、半径が大きく出ると解析が急に遅くなる。
+  // 大きな塊が1つだけ写った写真（手・バケツ・近すぎる葉）で半径が
+  // 100画素と出ると、作業解像度では分単位で待たされる。
+  // 粒として妥当な半径は 20 画素前後なので、その3倍で頭打ちにする。
+  // ここで頭打ちにしても、粒数が少なすぎる写真は別途はじかれる。
+  SEED_WINDOW_MAX: 60,
+
   SEED_SMOOTH_RATIO: 0.28,
   SEED_WINDOW_RATIO: 1.3,
   SEED_MIN_WINDOW: 5,
@@ -1918,9 +2132,40 @@ const GRAIN_PARAMS = {
   GRAIN_MAX_ELONGATION: 5.0,
   GRAIN_MIN_FILL: 0.45,
   GRAIN_MIN_MINOR_RATIO: 1.2,
+  // 判断の境目にどれだけ近ければ「1枚で決められない」と断るか（帯緑籾率のポイント）。
+  //
+  // 【実測 2026-08-19】同じ穂を崩して置き直し、角度を変えて撮ると、
+  // 黄化率は適期付近の穂で 87.8〜92.6%（幅4.8ポイント・標準偏差2.4）まで動いた。
+  // 真の値は同じはずなので、これは置き方だけで生じる誤差である。
+  // 黄化率73%の穂では幅2.2ポイントに収まり、
+  // **緑の籾が少ない（＝適期付近の）穂ほど大きく振れる**。
+  // 1粒が境目を越えるか越えないかが、そのまま率に響くため。
+  //
+  // 適期の帯は5ポイント幅しかない。境目から5ポイント以内にある数字は、
+  // 置き直しただけで反対側へ移りうるので、1枚では決めさせない。
+  STAGE_UNSTABLE_MARGIN: 5.0,
+
   STAGE_MARGIN_EARLY: 8.0,
   STAGE_MARGIN_LATE: 4.0,
   MIN_GRAIN_COUNT: 60,
+
+  // これを下回ったら、黄化率そのものを出さない。
+  //
+  // 【なぜ要るか】
+  // 以前は少なすぎる側だけ黄色い注意で、判定は堂々と出していた。
+  // 粒が1個だけ取れた写真（手やバケツが写り込んだ等）では
+  // その1個が黄色なら黄化率100%となり、「刈り遅れ／至急刈取ってください」
+  // と表示された。多すぎる側は赤い警告で止めているのに、片側だけ素通りだった。
+  // 20粒は、1粒あたりの重みが5ポイントになる線。適期の帯は5ポイント幅しかない。
+  TRUST_MIN_GRAIN_COUNT: 20,
+
+  // 同じ穂を置き直したときに、置き方だけで動く幅の上限（ポイント）。
+  //
+  // 実測 2026-08-19：同じ穂4枚で 87.8 / 88.1 / 91.3 / 92.6% と 4.8 動いた。
+  // これを超える割れ方は、置き方では説明がつかない別の原因（籾の重なり、
+  // 穂元の写り漏れ）とみなす。以前は STAGE_UNSTABLE_MARGIN を借りて
+  // その2倍（10ポイント）を使っており、実測の倍の幅まで見逃していた。
+  PANICLE_SPREAD_MAX: 5.0,
   MAX_EXCLUDE_RATIO: 0.25,
 
   // --- 判定を信用してよいかの確認（2026-08-11 追加） ---
@@ -2685,21 +2930,41 @@ function grainEstimateWB(data, s, v, n) {
 
   let wr = 0, wg = 0, wb = 0, wc = 0;
   let ar = 0, ag = 0, ab = 0, ac = 0;
+  let clippedWhite = 0;   // 白いが明るすぎて色が飛んでいる画素
 
   for (let i = 0, p = 0; i < n; i++, p += 4) {
     const r = data[p], g = data[p + 1], b = data[p + 2];
     // 白飛びした画素は元の色が失われているので基準に使わない
-    if (r >= GRAIN_PARAMS.WB_CLIP_VALUE || g >= GRAIN_PARAMS.WB_CLIP_VALUE || b >= GRAIN_PARAMS.WB_CLIP_VALUE) continue;
+    const clipped = r >= GRAIN_PARAMS.WB_CLIP_VALUE
+      || g >= GRAIN_PARAMS.WB_CLIP_VALUE || b >= GRAIN_PARAMS.WB_CLIP_VALUE;
+    if (white[i]) {
+      if (clipped) clippedWhite++;
+      else { wr += r; wg += g; wb += b; wc++; }
+    }
+    if (clipped) continue;
     ar += r; ag += g; ab += b; ac++;
-    if (white[i]) { wr += r; wg += g; wb += b; wc++; }
   }
 
+  // 【紙が写っている割合】と【色の基準に使える割合】を分ける。
+  //
+  // 以前は「使える割合」しか見ておらず、日向で白紙が真っ白に飛ぶと
+  // 割合が0になってグレーワールドに落ちていた。しかもグレーワールドの
+  // 平均は飛んだ紙を除くので、実質「穂だけ」の平均になる。
+  // そこから作った補正値で紙が白でなくなり、紙の検出まで失敗して
+  // 「白い紙を検出できませんでした。白い紙を敷いて撮り直してください」と
+  // 出ていた。紙は敷いてある。RGBが248なら正解、250なら総崩れだった。
+  const paperRatio = n > 0 ? (wc + clippedWhite) / n : 0;
   const whiteRatio = n > 0 ? wc / n : 0;
 
   let mr, mg, mb, method;
   if (whiteRatio >= GRAIN_PARAMS.WB_MIN_WHITE_RATIO) {
     mr = wr / wc; mg = wg / wc; mb = wb / wc;
     method = 'white';
+  } else if (paperRatio >= GRAIN_PARAMS.WB_MIN_WHITE_RATIO) {
+    // 紙はある。ただ明るすぎて色の基準が取れない。
+    // ここでグレーワールドに落ちると穂だけの平均で補正することになるので、
+    // 補正しないでおく。飛んだ紙はどのみち白なので、紙の検出は通る。
+    return { gains: [1, 1, 1], method: 'clipped', whiteRatio: paperRatio };
   } else if (ac > 0) {
     mr = ar / ac; mg = ag / ac; mb = ab / ac;
     method = 'gray';
@@ -2827,7 +3092,14 @@ function grainDetectPaper(s, v, w, h) {
     if (first >= 0) { pts.push([x, first]); pts.push([x, last]); }
   }
 
-  let mask = fillHull(convexHull(pts), w, h);
+  // 凸包の頂点が3つ未満だと fillHull は画面全体を返す。
+  // 以前はそれでも found: true と答えていたので、白い点が散っているだけの
+  // 写真（切り株の照り返しなど）で、画面全体を紙とみなし、
+  // 「白い紙を検出できませんでした」の警告も出さないまま解析していた。
+  const hull = convexHull(pts);
+  if (hull.length < 3) return { mask: all, found: false, whiteRatio: whiteRatio };
+
+  let mask = fillHull(hull, w, h);
 
   // 紙の縁は色がにじむので内側に縮める
   if (GRAIN_PARAMS.PAPER_ERODE_PX > 0) {
@@ -3029,10 +3301,12 @@ function grainSegment(s, v, lightness, region, w, h) {
   // 粒が密着していても粒ごとに山が分かれる（距離変換ではこれができない）。
   const dt2 = distanceTransform(opened, w, h, false);
 
-  const sigma = Math.max(1.0, radius * GRAIN_PARAMS.SEED_SMOOTH_RATIO);
+  // 半径が大きく出たときのために頭打ちを設ける（理由は grain-params.js）。
+  const rCap = Math.min(radius, GRAIN_PARAMS.SEED_WINDOW_MAX);
+  const sigma = Math.max(1.0, rCap * GRAIN_PARAMS.SEED_SMOOTH_RATIO);
   // 変数名を window にしない。グローバルの window を隠してしまい、
   // 「このコードは画面を触っていないか」の検査にも引っかかる。
-  let seedWin = Math.max(GRAIN_PARAMS.SEED_MIN_WINDOW, Math.round(radius * GRAIN_PARAMS.SEED_WINDOW_RATIO));
+  let seedWin = Math.max(GRAIN_PARAMS.SEED_MIN_WINDOW, Math.round(rCap * GRAIN_PARAMS.SEED_WINDOW_RATIO));
   if (seedWin % 2 === 0) seedWin += 1;   // 局所最大の窓は中心を持つ奇数にする
 
   // 前景の外は0で埋めてから平滑化する。明るい紙を含めると
@@ -3517,8 +3791,13 @@ function analyzeGrains(imageData, rect, model, thresholds) {
     bgMode: 'white',
     wb: wb,
     // 既存と同じ名前・同じ単位（0〜1）
-    greenIndex: counted.greenRatio === null ? null : counted.greenRatio / 100,
-    yellowingRatio: counted.yellowing === null ? null : counted.yellowing / 100,
+    //
+    // 粒が少なすぎるときは値を出さない。1粒あたりの重みが大きすぎて、
+    // 数字の形はしていても中身が無い。呼ぶ側の hasGreenIndex が判定を止める。
+    greenIndex: (counted.greenRatio === null || counted.total < GRAIN_PARAMS.TRUST_MIN_GRAIN_COUNT)
+      ? null : counted.greenRatio / 100,
+    yellowingRatio: (counted.yellowing === null || counted.total < GRAIN_PARAMS.TRUST_MIN_GRAIN_COUNT)
+      ? null : counted.yellowing / 100,
     greenRatio: counted.total > 0 ? c.green / counted.total : null,
     yellowRatio: counted.total > 0 ? c.yellow / counted.total : null,
     brownRatio: counted.brownRatio === null ? null : counted.brownRatio / 100,
@@ -3596,6 +3875,12 @@ function grainCollectWarnings(res, seg) {
   }
   if (res.wb.method === 'gray') {
     w.push({ level: 'warn', text: '白い紙が写っていないため簡易的な色補正になりました。白い紙を背景に敷いて撮り直すと精度が上がります。' });
+  } else if (res.wb.method === 'clipped') {
+    w.push({
+      level: 'warn',
+      text: '白い紙が明るすぎて真っ白に飛んでいるため、色補正をしていません。'
+        + '明るい日陰で撮り直すと精度が上がります。直射日光の下では飛びやすくなります。',
+    });
   } else if (res.wb.method === 'none') {
     w.push({ level: 'alert', text: '色補正ができませんでした。写真が暗すぎるか白飛びしている可能性があります。' });
   }
@@ -3608,7 +3893,14 @@ function grainCollectWarnings(res, seg) {
     w.push({ level: 'alert', text: '数えられる籾がありませんでした。' });
   }
 
-  if (res.grainCount > 0 && res.grainCount < GRAIN_PARAMS.MIN_GRAIN_COUNT) {
+  if (res.grainCount > 0 && res.grainCount < GRAIN_PARAMS.TRUST_MIN_GRAIN_COUNT) {
+    w.push({
+      level: 'alert',
+      text: `数えられた籾が${res.grainCount}粒しかありません。`
+        + '1粒あたりの重みが大きすぎるため、この写真から刈取の判定は出せません。'
+        + '白い紙の上に1穂だけを広げて置き、穂全体が入るように撮り直してください。',
+    });
+  } else if (res.grainCount > 0 && res.grainCount < GRAIN_PARAMS.MIN_GRAIN_COUNT) {
     w.push({
       level: 'warn',
       text: `数えられた籾が${res.grainCount}粒しかありません。${GRAIN_PARAMS.MIN_GRAIN_COUNT}粒以上になるよう、穂を広げて近づいて撮り直すと安定します。`,
@@ -3735,14 +4027,22 @@ function grainMedianOf(values) {
 function renderFieldMedian(metrics, a, j) {
   if (a.mode !== 'panicle' || a.yellowingRatio === null) return;
 
+  // 圃場の中央値を先に出す。
+  //
+  // 理由欄はどちらも先頭に差し込むので、あとから足したほうが上に来る。
+  // 見てほしいのは穂の中央値（置き方の誤差を薄めたもの）なので、
+  // そちらをあとに回す。指標カードの並びは逆で、穂のほうが先に出る。
+
   // 数えるのは保存済みの記録だけにする。
   // いま画面に出ている解析結果を足すと、同じ写真を解析し直したときに
   // 同じ穂を二重に数えてしまう（解析のたびに保存状態が外れるため）。
-  const values = grainSameFieldRecords(a).map((r) => r.yellowingRatio * 100);
+  const recs = grainSameFieldRecords(a);
+  const values = recs.map((r) => r.yellowingRatio * 100);
   const unsaved = !JudgeState.savedRecordId;
 
   if (values.length < MEDIAN_MIN_SAMPLES) {
     grainMedianHint(values.length, unsaved);
+    renderPanicleMedian(metrics, a, null);
     return;
   }
 
@@ -3751,8 +4051,10 @@ function renderFieldMedian(metrics, a, j) {
   const spread = sorted[sorted.length - 1] - sorted[0];
 
   const variety = findVariety($('#in-variety').value);
-  // 品種マスタは帯緑籾率で持っているので、黄化率から引いて渡す
-  const stage = variety ? stageFromGreenRatio(100 - median, variety) : null;
+  // 帯緑籾率は greenPctOf を通す（理由は下の穂の中央値と同じ）。
+  const fGreens = recs.map((r) => greenPctOf(r.method, r.greenIndex)).filter((v) => v !== null);
+  const fGreenMedian = fGreens.length === values.length ? grainMedianOf(fGreens) : 100 - median;
+  const stage = variety ? stageFromGreenRatio(fGreenMedian, variety) : null;
 
   const eachText = sorted.map((v) => v.toFixed(0) + '%').join(' / ');
   const note = (stage ? `判定：${stageLabel(stage)}　` : '')
@@ -3762,12 +4064,13 @@ function renderFieldMedian(metrics, a, j) {
     ? el('span', { class: 'badge-est', text: '推奨' })
     : el('span', { class: 'badge-prov', text: '枚数不足' });
 
-  metrics.appendChild(metricCard(
+  const fieldCard = metricCard(
     `この圃場の中央値（保存済み${values.length}枚）`,
     median.toFixed(1) + '%',
     note,
     badge
-  ));
+  );
+  metrics.appendChild(fieldCard);
 
   // 判断に使ってほしいのは中央値のほうなので、その旨を理由欄に出す
   if (values.length < MEDIAN_ENOUGH_SAMPLES) {
@@ -3785,6 +4088,11 @@ function renderFieldMedian(metrics, a, j) {
       `刈取の判断は、1枚ずつの値ではなく`
       + `${values.length}枚の中央値 ${median.toFixed(1)}% で行ってください。`);
   }
+
+  // 穂の中央値はここで出す。理由欄はどちらも先頭に差し込むので、
+  // あとに呼んだほうが上に来る。読んでほしいのは穂のほうなので最後に回す。
+  // 指標カードの並びは逆にしたいので、圃場のカードの前に差し込ませる。
+  renderPanicleMedian(metrics, a, fieldCard);
 }
 
 /**
@@ -3794,12 +4102,16 @@ function renderFieldMedian(metrics, a, j) {
  * まるごと作り直されるため、入れた行が消えてしまう。
  * 判定結果（j.reasons）のほうに入れる。
  */
-function grainMedianReason(level, text) {
+function grainMedianReason(level, text, key) {
   const j = JudgeState.judgement;
   if (!j || !Array.isArray(j.reasons)) return;
-  // 同じ解析で二度呼ばれても増えないよう、前回ぶんを外してから足す
-  j.reasons = j.reasons.filter((r) => !r.fromMedian);
-  j.reasons.unshift({ level: level, text: text, fromMedian: true });
+  // 同じ解析で二度呼ばれても増えないよう、前回ぶんを外してから足す。
+  //
+  // 印は種類ごとに分ける。1つの印で共有すると、あとから足したほうが
+  // 前のを消してしまう（穂の中央値の行が、圃場の中央値の行に消されていた）。
+  const k = key || 'field';
+  j.reasons = j.reasons.filter((r) => r.fromMedian !== k);
+  j.reasons.unshift({ level: level, text: text, fromMedian: k });
 }
 
 /** 中央値を出すには枚数が足りないときの案内 */
@@ -3811,6 +4123,75 @@ function grainMedianHint(saved, unsaved) {
     + `19ポイント振れました。適期の帯は5ポイント幅しかないため、`
     + `1枚では判断できません。${MEDIAN_ENOUGH_SAMPLES}枚以上を保存して`
     + `中央値で判断してください。`);
+}
+
+/**
+ * 同じ穂を撮り直したぶんの中央値。
+ *
+ * 【なぜ圃場の中央値と分けるのか — 実測 2026-08-19】
+ * 同じ穂を崩して置き直すだけで、黄化率は適期付近で4.8ポイント動いた
+ * （87.8 / 88.1 / 91.3 / 92.6%）。真の値は同じはずなので、これは
+ * 置き方だけで生じる誤差である。籾の緑の帯が下や陰を向くと写真に写らないため。
+ *
+ * 「同じ穂を3枚」と「別々の3穂」は意味が違う。前者はこの置き方の誤差を
+ * 薄めるためのもの、後者は圃場のばらつきを見るためのもの。
+ * 圃場と日付だけでまとめると両者が混ざるので、穂の印で分けて出す。
+ */
+function renderPanicleMedian(metrics, a, beforeCard) {
+  const pid = JudgeState.panicleId;
+  if (!pid) return;
+
+  // 方式と撮影日で絞る。以前は穂の印だけで集めていたため、
+  // 途中で設定を切り替えると粒数の割合と画素の割合が混ざり、
+  // どちらの尺度でもない数字が出ていた。圃場の中央値側は最初から絞っている。
+  const wantMethod = a.method || 'pixel';
+  const date = $('#in-shotdate').value || today();
+  const rows = DB.records.filter((r) =>
+    r.panicleId === pid
+    && r.mode === 'panicle'
+    && (r.method || 'pixel') === wantMethod
+    && r.date === date
+    && r.yellowingRatio !== null && r.yellowingRatio !== undefined);
+
+  const values = rows.map((r) => r.yellowingRatio * 100);
+  if (values.length < MEDIAN_MIN_SAMPLES) return;
+
+  const median = grainMedianOf(values);
+  const sorted = values.slice().sort((x, y) => x - y);
+  const spread = sorted[sorted.length - 1] - sorted[0];
+  const variety = findVariety($('#in-variety').value);
+  // 帯緑籾率は必ず greenPctOf を通す。100から引くだけだと、
+  // 画素方式で換算式が入っているとき、このカードの判定だけが
+  // 見出しの判定と食い違う。
+  const greens = rows.map((r) => greenPctOf(r.method, r.greenIndex)).filter((v) => v !== null);
+  const greenMedian = greens.length === values.length ? grainMedianOf(greens) : 100 - median;
+  const stage = variety ? stageFromGreenRatio(greenMedian, variety) : null;
+
+  const card = metricCard(
+    `この穂の中央値（${values.length}枚）`,
+    median.toFixed(1) + '%',
+    (stage ? `判定：${stageLabel(stage)}　` : '')
+      + `1枚ずつ：${sorted.map((v) => v.toFixed(0) + '%').join(' / ')}`,
+    values.length >= MEDIAN_ENOUGH_SAMPLES
+      ? el('span', { class: 'badge-est', text: '推奨' })
+      : el('span', { class: 'badge-prov', text: 'もう1枚' })
+  );
+  if (beforeCard && beforeCard.parentNode === metrics) metrics.insertBefore(card, beforeCard);
+  else metrics.appendChild(card);
+
+  // 同じ穂なのに大きく割れたときは、撮り方そのものを疑う。
+  // 置き方の誤差は実測で4.8ポイントまでだった。それを超えるのは別の原因。
+  if (spread > GRAIN_PARAMS.PANICLE_SPREAD_MAX) {
+    grainMedianReason('conflict',
+      `同じ穂なのに黄化率が${spread.toFixed(0)}ポイント割れています`
+      + `（${sorted.map((v) => v.toFixed(0) + '%').join(' / ')}）。`
+      + '置き方の誤差にしては大きすぎます。籾が重なっていないか、'
+      + '穂元まで画面に入っているかを確かめて撮り直してください。', 'panicle');
+  } else {
+    grainMedianReason('info',
+      `この穂は${values.length}枚の中央値 ${median.toFixed(1)}% で見てください。`
+      + '1枚ずつの値は置き方で数ポイント動きます。', 'panicle');
+  }
 }
 
 /* ===== js: judge/grain-learn.js ===== */
@@ -4035,8 +4416,14 @@ function grainWorkerGet() {
       const job = GrainWorker.pending.get(e.data.id);
       if (!job) return;
       GrainWorker.pending.delete(e.data.id);
-      if (e.data.error) job.reject(new Error(e.data.error));
-      else job.resolve(e.data.result);
+      if (e.data.error) {
+        // 別スレッドは無事で、この1枚の解析が失敗しただけ。目印を付ける。
+        const err = new Error(e.data.error);
+        err.fromAnalysis = true;
+        job.reject(err);
+      } else {
+        job.resolve(e.data.result);
+      }
     };
     wk.onerror = (e) => {
       // 個々の失敗ではなく Worker 自体が壊れた場合。待っている全部を落とす。
@@ -4083,8 +4470,15 @@ function analyzeGrainsAsync(imageData, rect, model) {
       thresholds: thresholds,
     });
   }).catch((err) => {
-    // Worker が使えなかった。今回はその場で解析し、次回からは同期に回す。
-    console.warn('別スレッドでの解析に失敗しました。この場で解析します。', err);
+    // 解析そのものの失敗は、別スレッドの故障ではない。
+    //
+    // 以前はどちらも同じ扱いで、1枚うまくいかない写真があるだけで
+    // 別スレッドを捨て、しかもその場で同じ解析をやり直していた。
+    // 画面が数秒〜十数秒止まり、以後その回の間ずっと本体側で解析する。
+    // 別スレッドはまさにそれを避けるために入れたもの。
+    if (err && err.fromAnalysis) throw err;
+
+    console.warn('別スレッドが使えませんでした。この場で解析します。', err);
     GrainWorker.broken = true;
     GrainWorker.worker = null;
     return analyzeGrains(imageData, rect, model, thresholds);
@@ -4661,6 +5055,42 @@ function hasGreenIndex(v) {
 }
 
 /**
+ * 判断の境目に近い数字のとき、1枚で決めさせない。
+ *
+ * 【なぜ必要か — 実測 2026-08-19】
+ * 同じ穂を崩して置き直し、角度を変えて撮ると、黄化率は適期付近の穂で
+ * 87.8〜92.6%（幅4.8ポイント）まで動いた。**真の値は同じはず**なので、
+ * これは置き方だけで生じる誤差である。しかも緑の籾が少ない穂ほど大きく振れる。
+ * 適期の帯は5ポイント幅しかないので、境目のそばでは置き直すだけで
+ * 反対側へ移る。
+ *
+ * 実際、260818の答え合わせでは8本中2本が85%をまたいで取り違えていた。
+ *
+ * 数字そのものは直せない（撮り方でもしきい値でも防げない）。
+ * せめて、その数字が判断に足りるかどうかを画面で断る。
+ */
+function addUnstableWarning(out, variety) {
+  const pct = out.estGreenPct;
+  if (pct === null || !variety) return;
+  const m = GRAIN_PARAMS.STAGE_UNSTABLE_MARGIN;
+  const hi = Number(variety.greenHi);   // 適期の入口
+  const lo = Number(variety.greenLo);   // 適期の出口
+  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return;
+  if (Math.abs(pct - hi) > m && Math.abs(pct - lo) > m) return;
+
+  out.reasons.push({
+    level: 'alert',
+    // 「実測で4.8」は測定値、m はそれを踏まえて決めた警告の幅。
+    // 同じ数字として書くと、しきい値を変えたときに測定値まで書き換わってしまう。
+    text: 'この数字は判断の境目に近く、1枚では決められません。'
+      + '同じ穂を置き直して撮り直すだけで、実測で最大 4.8 ポイント動きました'
+      + '（籾の緑の帯が下や陰を向くと写真に写らないため）。'
+      + '同じ穂をいったん崩して並べ直し、もう1〜2枚撮って中央値で判断してください。'
+      + '現物での確認も併せて行ってください。',
+  });
+}
+
+/**
  * 表示と判定に使う「推定 帯緑籾率(%)」。
  *
  * 【必ずここを通すこと】
@@ -4835,7 +5265,8 @@ function buildReasons(out, ctx, parts) {
   if (!hasGreenIndex(a.greenIndex) && a.mode === 'panicle') {
     out.reasons.push({
       level: 'alert',
-      text: '籾の色を測れませんでした。籾が1粒も数えられていないため、刈取の判定は出せません。',
+      text: '籾の色を測れませんでした。数えられた籾が少なすぎるため、刈取の判定は出せません。'
+        + '上の注意書きをご覧ください。',
     });
   }
 
@@ -4872,6 +5303,14 @@ function buildReasons(out, ctx, parts) {
       });
     }
   }
+
+  // 境目の警告は、どの方式・どの基準でも出す。
+  //
+  // 以前は粒カウント方式の枝の中だけにあった。そのため、
+  // 設定で画素方式に切り替えた人には、境目の警告も
+  // 「何枚か撮って中央値で見て」という案内も一切出なかった。
+  // 置き方で数ポイント動くのは方式によらない。
+  if (out.colorStage) addUnstableWarning(out, variety);
 
   if (out.gdd && out.gdd.error) {
     out.reasons.push({ level: 'alert', text: out.gdd.error });
@@ -5070,9 +5509,22 @@ function drawHistoryChart(canvas, groups) {
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
-  const all = groups.flatMap((g) => g.records);
+  let all = groups.flatMap((g) => g.records);
   if (all.length === 0) {
     ctx.fillStyle = '#8a968a';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('表示できる記録がありません', w / 2, h / 2);
+    return;
+  }
+
+  // 日付が読めない記録を先に外す。
+  // JSON読み込みは記録1件ずつの中身までは見ないので、日付が空のものが
+  // 混ざりうる。混ざると parseISODate が null を返し、ここで落ちる。
+  // 一度保存されたあとは、開くたびに履歴タブが落ち続けることになる。
+  all = all.filter((r) => parseISODate(r.date));
+  if (all.length === 0) {
+    ctx.fillStyle = '#888';
     ctx.font = '13px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('表示できる記録がありません', w / 2, h / 2);
@@ -5381,6 +5833,81 @@ function aboutColorSvg() {
     + ' aria-label="緑・帯緑・黄化・褐変の4種類。黄化と褐変を黄化した籾に数える">'
     + s + '</svg>';
 }
+// 開いたときに出す更新の記録は、多くても3回分まで。
+// それ以上は読まれない。全部は設定タブの「更新の記録」で見られる。
+const WHATS_NEW_MAX = 3;
+
+/**
+ * 「新しくなりました」の中身を組み立てる。
+ *
+ * @param {Array} entries 出したい更新の記録（新しい順）
+ * @returns {HTMLElement}
+ */
+function changelogList(entries) {
+  const box = el('div', { class: 'changelog' });
+  for (const e of entries) {
+    box.appendChild(el('h3', { class: 'cl-date', text: `${e.date}　${e.title}` }));
+    const ul = el('ul', { class: 'cl-list' });
+    for (const line of e.lines) {
+      const big = line.indexOf('◆') === 0;
+      ul.appendChild(el('li', {
+        class: big ? 'cl-big' : null,
+        text: big ? line.slice(1).trim() : line,
+      }));
+    }
+    box.appendChild(ul);
+  }
+  return box;
+}
+
+/**
+ * 前に見た版より新しい記録を返す。
+ *
+ * 日付で比べる。版の印（ハッシュ）で比べないのは、中身を直さずに
+ * 作り直しただけでも印が変わり、毎回「新しくなりました」が出てしまうため。
+ */
+function changelogSince(seenDate) {
+  if (typeof CHANGELOG === 'undefined') return [];
+  // 記録が無い＝この仕組みが入る前から使っている人。いちばん見てほしい相手なので、
+  // 全部出す。初めて使う人には app.js 側で今の日付を入れてあるので、ここへ来ない。
+  if (!seenDate) return CHANGELOG.slice(0, WHATS_NEW_MAX);
+  return CHANGELOG.filter((e) => e.date > seenDate).slice(0, WHATS_NEW_MAX);
+}
+
+/**
+ * 開いたときに「新しくなりました」を出す。
+ *
+ * 初めて使う人には出さない（「はじめにお読みください」と二重になるため）。
+ * その場合は今の日付を見たことにして、次の更新から出す。
+ */
+function showWhatsNew() {
+  const today = (typeof APP_VERSION === 'undefined' || !APP_VERSION)
+    ? null : APP_VERSION.date;
+  if (!today) return;
+
+  const seen = DB.settings.lastSeenVersionDate || null;
+  const entries = changelogSince(seen);
+
+  DB.settings.lastSeenVersionDate = today;
+  saveDB();
+
+  if (entries.length === 0) return;
+
+  const dlg = $('#whats-new');
+  if (!dlg || typeof dlg.showModal !== 'function') return;
+  const body = $('#whats-new-body');
+  body.textContent = '';
+  body.appendChild(changelogList(entries));
+  dlg.showModal();
+}
+
+/** 設定タブの「更新の記録」。いつでも見返せるようにしておく。 */
+function renderChangelog() {
+  const box = $('#changelog-box');
+  if (!box) return;
+  box.textContent = '';
+  box.appendChild(changelogList(CHANGELOG));
+}
 
 /* ===== js: ui/tab-judge.js ===== */
 // 判定タブ
@@ -5403,6 +5930,19 @@ const JudgeState = {
   // 前の写真の結果が新しい写真の結果として表示・記録されてしまう。
   // 解析を始めた時点の番号と、返ってきた時点の番号を比べて捨てる。
   runToken: 0,
+
+  // いま写している穂の印。
+  //
+  // 【なぜ要るか — 実測 2026-08-19】
+  // 同じ穂でも、崩して置き直すだけで黄化率が4.8ポイント動く。適期の帯は
+  // 5ポイント幅しかないので、1枚では判断の境目のどちら側かを決められない。
+  // 何枚か撮って中央値を取れば、この置き方の誤差は薄まる。
+  //
+  // ただし「同じ穂を3枚」と「別々の3穂」は意味が違う。前者は置き方の誤差を
+  // 消すためのもの、後者は圃場のばらつきを見るためのもの。
+  // 圃場と日付だけでまとめると両者が混ざるので、穂そのものに印を付ける。
+  panicleId: null,
+  // 次に読み込む写真を「同じ穂」として扱うか。もう1枚撮るボタンが立てる。
 };
 
 function initJudgeTab() {
@@ -5453,6 +5993,22 @@ function initJudgeTab() {
   $('#btn-analyze').addEventListener('click', () => runAnalysis());
   $('#btn-save').addEventListener('click', saveCurrentRecord);
   $('#btn-clear-img').addEventListener('click', clearImage);
+  $('#btn-again').addEventListener('click', shootSamePanicle);
+  $('#btn-new-panicle').addEventListener('click', () => {
+    JudgeState.panicleId = null;
+    renderPanicleChip();
+    if (JudgeState.analysis) renderResult();
+    toast('このあとの写真は別の穂として記録します。');
+  });
+
+  // 品種・圃場・出穂日・撮影日を変えたら、その場で判定し直す。
+  //
+  // 以前は画面の判定が古いまま残り、それで「記録する」を押すと、
+  // 品種名と日付だけ新しい値で、判定と積算温度は古い品種のもの、
+  // という記録が残っていた。もち米の基準でうるち米を見ることになる。
+  for (const sel of ['#in-variety', '#in-heading', '#in-shotdate']) {
+    $(sel).addEventListener('change', () => { if (JudgeState.analysis) rejudgeCurrent(); });
+  }
   $('#in-alpha').addEventListener('input', renderOverlay);
   $('#in-bg').addEventListener('change', () => { if (JudgeState.analysis) runAnalysis(); });
 
@@ -5523,6 +6079,9 @@ function onPlotChange() {
   if (!plot) return;
   if (plot.varietyId && findVariety(plot.varietyId)) $('#in-variety').value = plot.varietyId;
   if (plot.heading) $('#in-heading').value = plot.heading;
+  // 圃場を変えると品種と出穂日まで入れ替わる。判定をそのままにしておくと、
+  // 画面の値と記録される値が違うことになる。
+  if (JudgeState.analysis) rejudgeCurrent();
 }
 
 // ---------------- 画像の読み込み ----------------
@@ -5602,11 +6161,17 @@ function setupImage(img) {
   JudgeState.savedRecordId = null;
   JudgeState.thumb = makeThumbnail(img);
   JudgeState.runToken++;   // 走っている解析があれば、その結果はもう別の写真のもの
+  // 穂の印はここでは触らない。消すのは clearImage と「別の穂にする」だけ。
+  // 印が付いていることは画面の目印（panicle-chip）で常に見えている。
 
   $('#dropzone').hidden = true;
   $('#image-area').hidden = false;
-  $('#btn-analyze').disabled = false;
+  // 解析中に別の写真を読むと、ボタンだけ押せるのに中身は「解析しています…」のままになり、
+  // 押しても何も起きない状態だった。解析中は押せないままにしておく。
+  $('#btn-analyze').disabled = JudgeState.analyzing;
   $('#result-card').hidden = true;
+  $('#btn-again').hidden = true;   // この写真はまだ記録していない
+  renderPanicleChip();
   if ($('#teach-card')) $('#teach-card').hidden = true;
   if ($('#grain-label-card')) $('#grain-label-card').hidden = true;
   if ($('#hand-card')) $('#hand-card').hidden = true;
@@ -5633,11 +6198,65 @@ function clearImage() {
   JudgeState.savedRecordId = null;
   JudgeState.thumb = null;
   JudgeState.runToken++;
+  JudgeState.panicleId = null;    // 写真を消したら別の穂とみなす
   $('#dropzone').hidden = false;
   $('#image-area').hidden = true;
   $('#btn-analyze').disabled = true;
   $('#result-card').hidden = true;
+  $('#btn-again').hidden = true;
+  renderPanicleChip();
   if ($('#teach-card')) $('#teach-card').hidden = true;
+}
+
+/**
+ * 同じ穂をもう1枚撮る。
+ *
+ * 【なぜ要るか — 実測 2026-08-19】
+ * 同じ穂を崩して置き直すだけで、黄化率は適期付近で4.8ポイント動いた。
+ * 真の値は同じはずなので、これは置き方だけで生じる誤差。
+ * 適期の帯は5ポイント幅しかないため、1枚では境目のどちら側かを決められない。
+ * 何枚か撮って中央値を取れば、この誤差は薄まる。
+ *
+ * 穂の印を引き継いだまま写真だけ入れ替える。記録は別々に残り、
+ * 中央値の計算でひとまとまりとして扱われる。
+ */
+function shootSamePanicle() {
+  if (!JudgeState.panicleId) {
+    toast('先に「この結果を記録する」を押してください。');
+    return;
+  }
+  clearImageKeepingPanicle();
+  toast('同じ穂をいったん崩して並べ直し、もう1枚撮ってください。');
+  // スマホはカメラを直接開く。PCはファイル選択。
+  const cam = $('#camera-input');
+  if (cam && $('.shoot-row') && $('.shoot-row').offsetParent !== null) cam.click();
+  else $('#file-input').click();
+}
+
+/** clearImage と同じだが、穂の印だけ残す。 */
+function clearImageKeepingPanicle() {
+  const keep = JudgeState.panicleId;
+  clearImage();
+  JudgeState.panicleId = keep;
+  renderPanicleChip();
+}
+
+/**
+ * 同じ穂の続きを撮るところだという目印を出す。
+ *
+ * 印は一度付くと、写真を消すか「別の穂にする」を押すまで残る。
+ * 見えていないと、やめたつもりで残っていることに気づけない。
+ */
+function renderPanicleChip() {
+  const chip = $('#panicle-chip');
+  if (!chip) return;
+  const pid = JudgeState.panicleId;
+  if (!pid) { chip.hidden = true; return; }
+  const n = DB.records.filter((r) => r.panicleId === pid).length;
+  if (n === 0) { chip.hidden = true; return; }
+  chip.hidden = false;
+  $('#panicle-chip-text').textContent =
+    `このあとの写真は、同じ穂の ${n + 1} 枚目として記録します。`;
 }
 
 // ---------------- 解析 ----------------
@@ -5703,7 +6322,9 @@ async function runAnalysis(opts) {
   }
   if (JudgeState.analyzing) return;   // 二重に走らせない
 
-  if (!opts || !opts.keepRecord) JudgeState.savedRecordId = null;
+  // ここで savedRecordId を外さない。外すと、同じ写真を解析し直して
+  // もう一度記録したときに2件目ができる。写真が入れ替わったときは
+  // setupImage / clearImage が外すので、ここでは何もしなくてよい。
   const token = JudgeState.runToken;   // どの写真に対する解析かを覚えておく
 
   let analysis;
@@ -5949,15 +6570,22 @@ function metricCard(label, value, note, badge) {
 
 // ---------------- 記録 ----------------
 
+// 直前の ensureSavedRecord が新しく作ったかどうか。知らせ方を分けるのに使う。
+let lastEnsureCreated = false;
+
 /**
- * 今の解析結果を記録する。すでに記録済みならその記録を返し、二重に増やさない。
- * 「記録する」を押しても、判定を教えても、同じ1件を指すようにするため。
+ * 今の解析結果を記録する。すでに記録してあれば、それを上書きする。
+ *
+ * 【なぜ上書きなのか】
+ * 以前は「記録済みならそのまま返す」だったが、解析し直すと savedRecordId が
+ * 外れるため、もう一度「記録する」を押すと同じ写真が2件になっていた。
+ * 背景の選択を触るだけでも解析は走る。中央値は「置き直して撮った枚数」を
+ * 前提にしているので、同じ写真が2枚に数えられると値そのものが狂う。
+ * 実測4枚 88/88/91/93% のうち1枚が二重に入るだけで中央値は数ポイント動く。
+ *
+ * 人が入れた値（手数え・あなたの判定・実測帯緑籾率）は上書きしない。
  */
 function ensureSavedRecord() {
-  if (JudgeState.savedRecordId) {
-    const found = DB.records.find((r) => r.id === JudgeState.savedRecordId);
-    if (found) return found;
-  }
   const a = JudgeState.analysis;
   const j = JudgeState.judgement;
   if (!a || !j) return null;
@@ -5973,9 +6601,11 @@ function ensureSavedRecord() {
     if (heading) plot.heading = heading;
   }
 
-  const record = {
-    id: uid(),
-    createdAt: Date.now(),
+  // 穂の印はここで発行する。写真を読んだ時点ではなく記録の時点にするのは、
+  // 解析しただけで捨てた写真に番号が付いても意味がないため。
+  if (!JudgeState.panicleId) JudgeState.panicleId = uid();
+
+  const fields = {
     date: date,
     heading: heading,
     plotId: plot ? plot.id : null,
@@ -5986,6 +6616,8 @@ function ensureSavedRecord() {
     // どちらの方式で出した値かを残す。画素の割合と籾数の割合は尺度が違うので、
     // これが無いと学習・換算・履歴の再計算が両者を混ぜてしまう。
     method: a.method || 'pixel',
+    // 同じ穂を撮り直したものをまとめるための印。置き方の誤差を薄めるのに使う。
+    panicleId: JudgeState.panicleId,
     grainCount: a.grainCount === undefined ? null : a.grainCount,
     // 粒を1つずつ人が確かめた判定かどうか。あとから履歴を見返すとき、
     // 自動判定と人が直したものを混ぜて評価しないために要る。
@@ -6004,28 +6636,52 @@ function ensureSavedRecord() {
     stage: j.stage,
     stageLabel: j.stage ? stageLabel(j.stage) : '参考値',
     thumb: JudgeState.thumb,
+  };
+
+  const found = JudgeState.savedRecordId
+    ? DB.records.find((r) => r.id === JudgeState.savedRecordId) : null;
+  if (found) {
+    lastEnsureCreated = false;
+    return Object.assign(found, fields);
+  }
+
+  const record = Object.assign({ id: uid(), createdAt: Date.now() }, fields, {
     actualGreenRatio: null,
     handTotal: null,      // 手数えの全籾数（不稔を除く）
     handGreen: null,      // うち緑が残っていた籾
     handYellowing: null,  // 手数えの籾黄化率(%)
     userStage: null,
-  };
+  });
 
   DB.records.push(record);
   JudgeState.savedRecordId = record.id;
+  lastEnsureCreated = true;
   return record;
 }
 
 function saveCurrentRecord() {
-  const before = JudgeState.savedRecordId;
   const record = ensureSavedRecord();
   if (!record) return;
+  const created = lastEnsureCreated;
 
   if (saveDB()) {
-    $('#save-msg').textContent = before ? 'この結果は記録済みです' : '記録しました（履歴タブで確認できます）';
-    toast(before ? 'すでに記録済みです' : '記録しました');
+    $('#save-msg').textContent = created
+      ? '記録しました（履歴タブで確認できます）'
+      : 'この写真の記録を今の内容に更新しました';
+    $('#btn-again').hidden = false;
+    // 中央値のカードは保存済みの記録だけを数えるので、いま保存したぶんを
+    // 反映させるために出し直す。これが無いと、保存した直後だけ1枚前の数が出る。
+    renderResult();
+    renderPanicleChip();
+    toast(created ? '記録しました' : '記録を更新しました');
     renderHistoryTab();
     renderSettingsTab();
+  } else if (created) {
+    // 保存できなかったものを「保存済み」として扱うと、更新の知らせで
+    // 「未保存の解析があります」の確認が出ず、再読み込みで黙って消える。
+    // 上書きの失敗は取り消さない。元の記録まで消えてしまうため。
+    JudgeState.savedRecordId = null;
+    DB.records = DB.records.filter((r) => r.id !== record.id);
   }
 }
 
@@ -6126,37 +6782,74 @@ function renderHistoryTab() {
   $('#hist-empty').hidden = list.length > 0;
 
   for (const r of list) {
-    body.appendChild(el('tr', null, [
+    // 廃止したモード（圃場の全景・バラした籾）で撮った記録。
+    // 今の穂アップの値と尺度が違うので、数字を並べるときに断る。
+    const legacy = r.mode !== 'panicle';
+    const cells = [
       el('td', { text: r.date }),
       el('td', { text: r.plotName || '' }),
       el('td', { text: r.varietyName || '' }),
       el('td', null, [r.thumb ? el('img', { src: r.thumb, alt: '' }) : el('span', { text: '—' })]),
-      el('td', { class: 'num', text: recordYellowing(r) === null ? '—' : fmtPct(recordYellowing(r), 1) }),
-      el('td', { class: 'num', text: r.greenIndex === null ? '—' : fmtPct(r.greenIndex, 1) }),
+      // 廃止したモードの記録は、数字の列にも印を付ける。
+      //
+      // 以前は判定の列だけ「旧」と断っていて、黄化率と緑籾指数は
+      // 正しい記録とまったく同じ見た目で並んでいた。全景モードの値は
+      // 空・畦・水面・葉色を含んだ画面全体の割合で、穂の黄化率とは別物。
+      // 隣り合って並んでいれば比べたくなる。
+      el('td', { class: 'num' + (legacy ? ' legacy' : ''),
+        text: recordYellowing(r) === null ? '—'
+          : (legacy ? '旧 ' : '') + fmtPct(recordYellowing(r), 1) }),
+      el('td', { class: 'num' + (legacy ? ' legacy' : ''),
+        text: r.greenIndex === null ? '—' : (legacy ? '旧 ' : '') + fmtPct(r.greenIndex, 1) }),
       el('td', { class: 'num', text: recordEstPct(r) === null ? '—' : recordEstPct(r).toFixed(1) + '%' }),
       el('td', { class: 'num', text: r.gddSum === null || r.gddSum === undefined ? '—' : fmtNum(r.gddSum, 0) + '℃' }),
       // 圃場全景モードは廃止したが、それ以前に記録したものが手元に残っている。
       // 判定に使えない値なので、消さずに「旧」と断って並べる。
-      el('td', { text: r.mode === 'canopy' ? '旧・全景（参考値）' : stageLabel(restageRecord(r)) }),
-      el('td', null, [userStageSelect(r)]),
-      el('td', null, [actualInput(r)]),
-      el('td', null, [el('button', {
-        class: 'mini-btn danger',
-        text: '削除',
-        onclick: () => {
-          if (!confirm(`${r.date} ${r.plotName} の記録を削除します。よろしいですか？`)) return;
-          removeRecord(r.id);
-          recomputeCalibration();
-          relearnAll();
-          saveDB();
-          renderHistoryTab();
-          renderSettingsTab();
-        },
-      })]),
-    ]));
+      el('td', { text: legacy ? legacyModeLabel(r.mode) : stageLabel(restageRecord(r)) }),
+    ];
+
+    // 学習と換算の入力欄は開発用の版にだけ出す。
+    //
+    // 【なぜ】
+    // 配る版では learn.js / grain-learn.js が APP_DEV を見て学習を返さない。
+    // それなのに入力欄だけ残っており、選ぶと「学習し直しました」と出るのに
+    // 判定は一切変わらない、という状態だった（実際に配布物に入っていた）。
+    // 見出し側の <th> も index.html で同じ印で囲ってある。列数を合わせること。
+    if (APP_DEV) {
+      cells.push(el('td', null, [userStageSelect(r)]));
+      cells.push(el('td', null, [actualInput(r)]));
+    }
+
+    cells.push(el('td', null, [el('button', {
+      class: 'mini-btn danger',
+      text: '削除',
+      onclick: () => {
+        if (!confirm(`${r.date} ${r.plotName} の記録を削除します。よろしいですか？`)) return;
+        removeRecord(r.id);
+        recomputeCalibration();
+        relearnAll();
+        saveDB();
+        renderHistoryTab();
+        renderSettingsTab();
+      },
+    })]));
+
+    body.appendChild(el('tr', null, cells));
   }
 
   renderHistoryChart(list);
+}
+
+/**
+ * 廃止したモードの呼び名。
+ *
+ * どちらも判定に使えない値なので、消さずに「旧」と断って並べる。
+ * 消してしまうと、利用者が撮った記録が黙って無くなる。
+ */
+function legacyModeLabel(mode) {
+  if (mode === 'canopy') return '旧・圃場の全景（参考値）';
+  if (mode === 'separated') return '旧・バラした籾（参考値）';
+  return '旧・参考値';
 }
 
 /** あなたの判定の入力欄。変更するとしきい値が学習し直される。 */
@@ -6258,7 +6951,8 @@ function exportCSV() {
       r.date,
       r.plotName || '',
       r.varietyName || '',
-      r.mode === 'canopy' ? '旧・圃場全景（参考）' : '穂アップ',
+      // バラした籾のモードも廃止済み。分岐が無く「穂アップ」と書き出していた。
+      r.mode === 'panicle' ? '穂アップ' : legacyModeLabel(r.mode),
       pct2(recordYellowing(r)),
       pct2(r.greenIndex),
       est === null ? '' : est.toFixed(2),
@@ -6277,7 +6971,8 @@ function exportCSV() {
       r.gddSum === null || r.gddSum === undefined ? '' : r.gddSum.toFixed(1),
       r.mode === 'canopy' ? '旧・全景（参考値）' : stageLabel(restageRecord(r)),
       r.userStage ? STAGE_INFO[r.userStage].label : '',
-      r.wbMethod === 'white' ? '白基準' : r.wbMethod === 'gray' ? '簡易' : 'なし',
+      r.wbMethod === 'white' ? '白基準' : r.wbMethod === 'gray' ? '簡易'
+        : r.wbMethod === 'clipped' ? '白飛び（無補正）' : 'なし',
     ]);
   }
   downloadBlob(`刈り取り適期判定_履歴_${today()}.csv`, 'text/csv', toCSV(rows));
@@ -6310,6 +7005,10 @@ function importJSON(file) {
     } else {
       mergeInto(data);
     }
+    // 取り込んだ記録は、向こうの端末の品種の印を持っている。
+    // 名前でこちらの一覧につなぎ直す。これをやらないと、
+    // 同じ番号の別の品種に紐づいて履歴の判定が黙って変わる。
+    relinkVarieties();
     recomputeCalibration();
     relearnAll();
     saveDB();
@@ -6374,11 +7073,20 @@ function initSettingsTab() {
   });
 
   $('#btn-reset-varieties').addEventListener('click', () => {
-    if (!confirm('品種としきい値を初期値に戻します。追加・変更した内容は失われます。よろしいですか？')) return;
+    if (!confirm('品種としきい値を初期値に戻します。'
+      + '\n\n追加・変更した内容は失われます。'
+      + '\nこれまでの記録は消えませんが、一覧に無い名前の記録は'
+      + '撮ったときの判定のままになります。'
+      + '\n\nよろしいですか？')) return;
     DB.varieties = makeDefaultVarieties();
+    // 印が変わるので、記録を品種名でつなぎ直す。
+    // これをやらないと、古い印のままの記録が別の品種に紐づく。
+    const n = relinkVarieties();
+    relearnAll();
+    recomputeCalibration();
     saveDB();
     refreshAll();
-    toast('品種を初期値に戻しました');
+    toast(n ? `品種を初期値に戻し、記録 ${n} 件をつなぎ直しました` : '品種を初期値に戻しました');
   });
 
   $('#btn-add-plot2').addEventListener('click', () => {
@@ -6434,7 +7142,7 @@ function initSettingsTab() {
     toast('教えた判定を消しました');
   });
 
-  $('#btn-reset-calib').addEventListener('click', () => {
+  bindIf('#btn-reset-calib', 'click', () => {
     if (!confirm('換算式を初期状態（補正なし）に戻します。履歴に入力した実測値は消えません。よろしいですか？')) return;
     DB.calib = Object.assign({}, DEFAULT_CALIB);
     saveDB();
@@ -6453,6 +7161,22 @@ function initSettingsTab() {
     saveDB();
     renderSettingsTab();
     toast('色のしきい値を初期値に戻しました');
+  });
+
+  $('#btn-drop-thumbs').addEventListener('click', () => {
+    const n = DB.records.filter((r) => r.thumb).length;
+    if (n === 0) { toast('消せる写真はありません'); return; }
+    if (!confirm(`履歴に残っている写真 ${n} 件を消します。`
+      + '\n\n黄化率・粒数・判定などの数字はすべて残ります。'
+      + '\n履歴の写真の列が空欄になるだけです。'
+      + '\n\n保存できる量の大半は写真です。「保存できていません」と'
+      + '\n出ているときは、これで空きができます。'
+      + '\n\nよろしいですか？')) return;
+    for (const r of DB.records) r.thumb = null;
+    if (saveDB()) {
+      refreshAll();
+      toast(`写真 ${n} 件を消しました`);
+    }
   });
 
   $('#btn-purge-old').addEventListener('click', () => {
@@ -6568,6 +7292,7 @@ function renderUpdateCheck() {
 
 function renderSettingsTab() {
   renderVersion();
+  renderChangelog();
   renderVarietyTable();
   renderPlotTable();
   renderStationTable();
@@ -6917,6 +7642,9 @@ function boundsCell(learned) {
 // ---------------- キャリブレーション ----------------
 
 function renderCalibration() {
+  // カードごと開発用に回したので、配る版には置き場が無い。
+  // 実測値の入力欄も開発用にしか無いので、換算式は動かない。
+  if (!$('#calib-info')) return;
   const pts = calibrationPoints(DB.records);
   drawCalibScatter($('#cv-calib'), pts, DB.calib);
 
@@ -7026,12 +7754,19 @@ function boot() {
   recomputeCalibration();
   relearnAll();
   refreshAll();
+  showLoadError();   // 保存データが読めなかったときだけ帯を出す
 
   if (!DB.settings.firstRunDone) {
     const dlg = $('#first-run');
     if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
     DB.settings.firstRunDone = true;
+    // 初めての人に「新しくなりました」は要らない。今の版を見たことにしておく。
+    DB.settings.lastSeenVersionDate =
+      (typeof APP_VERSION === 'undefined' || !APP_VERSION) ? null : APP_VERSION.date;
     saveDB();
+  } else {
+    // 前に見た版より新しい記録があるときだけ出る。
+    showWhatsNew();
   }
 }
 
